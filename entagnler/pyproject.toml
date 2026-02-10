@@ -1,0 +1,18 @@
+[project]
+name = "madmax-artiq-host-env"
+version = "0.1.0"
+requires-python = ">=3.10,<3.13"
+
+dependencies = [
+  "artiq @ git+https://github.com/QuantumQuadrate/madmax-artiq.git@release-7",
+
+  # SiPyCo has no release-8 tag; pin to a known-good commit instead
+  "sipyco @ git+https://github.com/m-labs/sipyco.git@cceac0df537887135f99aa6b1bdd82853f16b4d6",
+
+
+  "entangler @ git+https://github.com/QuantumQuadrate/madmax-entangler-core.git@artiq-integration",
+
+]
+
+[project.scripts]
+kasli-gen = "artiq_entangler_bridge.kasli_gen:main"

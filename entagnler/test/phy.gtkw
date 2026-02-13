@@ -1,0 +1,98 @@
+[*]
+[*] GTKWave Analyzer v3.3.71 (w)1999-2016 BSI
+[*] Sat Jun 30 12:21:06 2018
+[*]
+[dumpfile] "C:\scratch\entangler-core\test\phy.vcd"
+[dumpfile_mtime] "Sat Jun 30 12:20:42 2018"
+[dumpfile_size] 93106
+[savefile] "C:\scratch\entangler-core\test\phy.gtkw"
+[timestart] 3043
+[size] 1680 1028
+[pos] -1 -1
+*-6.539742 1900 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[sst_width] 356
+[signals_width] 338
+[sst_expanded] 1
+[sst_vpaned_height] 294
+@28
+ointerface_address[4:0]
+@22
+ointerface_data[31:0]
+@28
+ointerface_stb
+@200
+-
+@24
+channelsequencer0_m_start[10:0]
+channelsequencer0_m_stop[10:0]
+channelsequencer1_m_start[10:0]
+channelsequencer1_m_stop[10:0]
+channelsequencer2_m_start[10:0]
+channelsequencer2_m_stop[10:0]
+channelsequencer3_m_start[10:0]
+channelsequencer3_m_stop[10:0]
+@200
+-
+@28
+heralder_pattern_ens[3:0]
+heralder_patterns0[3:0]
+heralder_patterns1[3:0]
+heralder_patterns2[3:0]
+heralder_patterns3[3:0]
+@200
+-
+@24
+inputgater0_gate_start[13:0]
+inputgater0_gate_stop[13:0]
+inputgater1_gate_start[13:0]
+inputgater1_gate_stop[13:0]
+inputgater2_gate_start[13:0]
+inputgater2_gate_stop[13:0]
+inputgater3_gate_start[13:0]
+inputgater3_gate_stop[13:0]
+@200
+-
+@28
+channelsequencer0_output
+channelsequencer1_output
+channelsequencer2_output
+channelsequencer3_output
+@200
+-
+@22
+heralder_matches[3:0]
+@28
+inputgater0_triggered
+inputgater1_triggered
+inputgater2_triggered
+inputgater3_triggered
+heralder_matches[3:0]
+@200
+-
+@28
+enable
+@22
+msm_m[9:0]
+@28
+msm_cycle_starting
+msm_success
+msm_timeout
+msm_run_stb
+msm_done_stb
+@200
+-
+@23
+inputgater0_ref_ts[13:0]
+@22
+inputgater0_sig_ts[13:0]
+inputgater1_sig_ts[13:0]
+inputgater2_sig_ts[13:0]
+inputgater3_sig_ts[13:0]
+@200
+-
+@24
+iinterface_data[13:0]
+@28
+iinterface_stb
+[pattern_trace] 1
+[pattern_trace] 0

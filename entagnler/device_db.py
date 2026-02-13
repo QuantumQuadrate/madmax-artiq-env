@@ -9,12 +9,11 @@ device_db = {
         "class": "Core",
         "arguments": {
             "host": core_addr,
-            "ref_period": 1e-09,
-            "analyzer_proxy": "core_analyzer",
+            "ref_period": 1e-9,
             "target": "cortexa9",
-            "satellite_cpu_targets": {}
         },
     },
+
     "core_log": {
         "type": "controller",
         "host": "localhost",
@@ -338,3 +337,31 @@ device_db["led1"] = {
     "class": "TTLOut",
     "arguments": {"channel": 0x000026}
 }
+
+
+
+
+
+device_db["entangler"] = device_db["entangler0"]
+device_db["out0-0"] = device_db["ttl4"]
+device_db["out0-1"] = device_db["ttl5"]
+device_db["out0-2"] = device_db["ttl6"]
+device_db["out0-3"] = device_db["ttl7"]
+
+device_db["in1-0"] = device_db["ttl0"]
+device_db["in1-1"] = device_db["ttl1"]
+device_db["in1-2"] = device_db["ttl2"]
+device_db["in1-3"] = device_db["ttl3"]
+
+
+# (optional extra inputs if your code uses them)
+device_db["in1-4"] = "ttl12"
+device_db["in1-5"] = "ttl13"
+device_db["in1-6"] = "ttl14"
+device_db["in1-7"] = "ttl15"
+device_db["in1-8"] = "ttl16"
+
+
+
+# entangler name alias (if you kept entangler0)
+device_db["entangler"] = "entangler0"

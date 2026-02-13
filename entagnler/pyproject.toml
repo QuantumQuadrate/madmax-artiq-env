@@ -1,18 +1,46 @@
 [project]
-name = "madmax-artiq-host-env"
+name = "madmax-artiq-entangler-env"
 version = "0.1.0"
-requires-python = ">=3.10,<3.13"
+requires-python = "==3.9.*"
 
 dependencies = [
-  "artiq @ git+https://github.com/QuantumQuadrate/madmax-artiq.git@release-7",
+  "artiq @ git+https://github.com/QuantumQuadrate/madmax-artiq.git@344a0d29aafee60a45fe0d87e946fab9a7ac6afd",
+  "sipyco @ git+https://github.com/m-labs/sipyco.git@27312727bdb8a182bd6e222e4cbdd3f39ae41d4e",
+  "artiq-comtools @ git+https://github.com/m-labs/artiq-comtools.git@f93570d8f2ed5a3cfb3e1c16ab00f2540551e994",
+  "misoc @ git+https://github.com/m-labs/misoc.git@6085a312bca26adeca6584e37d08c8ba2e1d6e38",
 
-  # SiPyCo has no release-8 tag; pin to a known-good commit instead
-  "sipyco @ git+https://github.com/m-labs/sipyco.git@cceac0df537887135f99aa6b1bdd82853f16b4d6",
+  "migen",
+
 
 
   "entangler @ git+https://github.com/QuantumQuadrate/madmax-entangler-core.git@artiq-integration",
 
+  "llvmlite==0.43.0",
+  "PyQt5<5.16",
+  "pyqt6-qt6<6.10",
+  "pyqt6-sip<14",  # usually safe; optional
+  "pyqtgraph",
+  "qasync",
+  "pygit2",
+  "numpy",
+  "python-dateutil",
+  "scipy",
+  "prettytable",
+  "pyserial",
+  "python-levenshtein",
+  "h5py",
+  "tqdm",
+  "lmdb",
+  "jsonschema",
+  "platformdirs",
+  "dynaconf",
+  "pytest",
+
+  
 ]
 
 [project.scripts]
 kasli-gen = "artiq_entangler_bridge.kasli_gen:main"
+
+
+

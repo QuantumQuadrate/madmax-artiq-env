@@ -1,0 +1,52 @@
+$var wire 10 ! m $end
+$var wire 11 " m_start $end
+$var wire 11 # m_stop $end
+$var wire 1 $ clear $end
+$var wire 1 % output $end
+$var wire 1 & stb_start $end
+$var wire 1 ' stb_stop $end
+$var wire 1 ( output_enable $end
+$var wire 1 ) sync_output $end
+$var wire 1 * sys_clk $end
+$dumpvars
+$end
+#0
+b0000000000 !
+b00000000000 "
+b00000000000 #
+0$
+0%
+0&
+0'
+0(
+0)
+0*
+1&
+1'
+1(
+#5
+1)
+1*
+1%
+#10
+0*
+#15
+0%
+1*
+0(
+1$
+#20
+0*
+#25
+0)
+1*
+b0000000000 !
+b00000000000 "
+b00000000000 #
+0$
+0%
+0&
+0'
+0(
+0)
+0*

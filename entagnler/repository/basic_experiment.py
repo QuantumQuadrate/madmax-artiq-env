@@ -1,144 +1,152 @@
-"""Simplest possible Entangler experiment.
+"""Entangler hardware test that SAVES results as ARTIQ datasets.
 
-For demo/example/testing purposes only.
+Wiring (loopback):
+  ttl4 (output) -> ttl0 (input)
+
+After running from artiq_dashboard:
+  Check Datasets panel:
+    entangler.success_rate
+    entangler.status_hist
+    entangler.reason_hist
+    entangler.ts_hist
 """
+
 import artiq.language.environment as artiq_env
-import artiq.language.units as aq_units
-import numpy
+import numpy as np
 from artiq.language.core import kernel, delay, parallel
-from artiq.language.types import TInt32
-
-from entangler.config import settings
+import artiq.language.units as aq_units
 
 
-# Get the number of inputs & outputs from the settings file.
-num_inputs = settings.NUM_ENTANGLER_INPUT_SIGNALS
-num_outputs = settings.NUM_OUTPUT_CHANNELS
-
-
-class EntanglerDemo(artiq_env.EnvExperiment):
-    """Demo experiment for the Entangler.
-
-    Uses the example files in this folder.
-    """
-
+class EntanglerDatasetTest(artiq_env.EnvExperiment):
     def build(self):
-        """Add the Entangler driver."""
         self.setattr_device("core")
-        self.setattr_device("entangler")
-        self.out0_0 = self.get_device("out0-0")
-        self.entangle_inputs = [
-            self.get_device("in1-{}".format(i)) for i in range(0, 4)
-        ]
-        self.generic_inputs = [self.get_device("in1-{}".format(i)) for i in range(4, 8)]
+
+        # Device names (match your device_db)
+        self.ent = self.get_device("entangler0")
+        self.ins = [self.get_device(f"ttl{i}") for i in range(0, 4)]   # inputs
+        self.out0 = self.get_device("ttl4")                            # output
+
+        # Parameters
+        self.nshots = 50
+        self.timeout = 10000  # <-- plain int (mu)
+
+        self.cycle_len = 1200
+        self.out_start = 100
+        self.out_stop = 1000
+        self.in_start = 10
+        self.in_stop = 1000
+
+        # Pattern for input0 (ttl0) firing
+        self.pattern_list = [0b0001]
+
+    def prepare(self):
+        # Initialize datasets
+        self.set_dataset("entangler.nshots", self.nshots, broadcast=True)
+        self.set_dataset("entangler.pattern_list", self.pattern_list, broadcast=True)
+        self.set_dataset("entangler.success_rate", 0.0, broadcast=True)
+        self.set_dataset("entangler.status_hist", [], broadcast=True)
+        self.set_dataset("entangler.reason_hist", [], broadcast=True)
+        self.set_dataset("entangler.end_ts_hist", [], broadcast=True)
+        self.set_dataset("entangler.ts_hist", [], broadcast=True)
 
     @kernel
     def run(self):
-        """Init and run the Entangler on the kernel.
-
-        Pretty much every line in here is important. Make sure you use ALL of them.
-        Note that this can be used in loopback mode. If you connect an output to
-        one of the end outputs and observe a different output on an oscilloscope,
-        you can see the entanglement end early when it detects an "event".
-        However, when the loopback cable is unplugged it will run for the full duration.
-        """
         self.core.reset()
         self.core.break_realtime()
-        self.init()
-        self.setup_entangler(
-            cycle_len=1200,
-            out_start=100,
-            out_stop=1000,
-            in_start=10,
-            in_stop=1000,
-            pattern_list=[0b1111, 0b1000, 0b0011],
-        )
-        end_timestamp, reason = self.run_entangler(10000)
-        self.check_entangler_status()
 
-        print("entangler", "Finished", reason)
+        # Configure IO
+        for t in self.ins:
+            t.input()
 
-    @kernel
-    def init(self):
-        """One-time setup on device != entangler."""
-        self.out0_0.pulse(1.5 * aq_units.us)  # marker signal for observing timing
-        for ttl_input in self.entangle_inputs:
-            ttl_input.input()
+        # One-time entangler setup
+        self.ent.init()
+        self.ent.set_cycle_length_mu(self.cycle_len)
 
-    @kernel
-    def setup_entangler(
-        self, cycle_len, out_start, out_stop, in_start, in_stop, pattern_list
-    ):
-        """Configure the entangler.
+        # Configure timing windows
+        for ch in range(8):
+            self.ent.set_timing_mu(ch, self.out_start, self.out_stop)      # outputs
+        for ch in range(8):
+            self.ent.set_timing_mu(8 + ch, self.in_start, self.in_stop)    # inputs
 
-        These mostly shouldn't need to be changed between entangler runs, though
-        you can with most of the set commands.
+        self.ent.set_patterns(self.pattern_list)
 
-        Args:
-            cycle_len (int): Length of each entanglement cycle.
-            out_start (int): Time in cycle when all outputs should turn on.
-            out_stop (int): Time in cycle when all outputs should turn off (deassert)
-            in_start (int): Time in cycle when all inputs should start looking for
-                input signals
-            in_stop (int): Time in cycle when all inputs should STOP looking for
-                input signals.
-            pattern_list (list(int)): List of patterns that inputs are matched
-                against. Matching ANY will stop the entangler.
-        """
-        self.entangler.init()
-        for channel in range(num_outputs):
-            self.entangler.set_timing_mu(channel, out_start, out_stop)
-        for channel in range(num_inputs):
-            self.entangler.set_timing_mu(channel + num_outputs, in_start, in_stop)
+        # Storage for results (kernel-side lists)
+        reason_hist = [0] * self.nshots
+        status_hist = [0] * self.nshots
+        end_ts_hist = [0] * self.nshots
+        ts_hist0 = [0] * self.nshots
+        ts_hist1 = [0] * self.nshots
+        ts_hist2 = [0] * self.nshots
+        ts_hist3 = [0] * self.nshots
+        success_count = 0
 
-        # NOTE: must set enable, defaults to disabled. If not standalone, tries to sync
-        # w/ slave (which isn't there) & doesn't start
-        self.entangler.set_config(enable=True, standalone=True)
-        self.entangler.set_cycle_length_mu(cycle_len)
-        self.entangler.set_patterns(pattern_list)
+        for i in range(self.nshots):
+            self.ent.set_config(enable=True, standalone=True)
 
-    @kernel
-    def run_entangler(self, timeout_length: TInt32):
-        """Run the entangler for a max time and wait for it to succeed/timeout."""
-        with parallel:
-            # This generates output events on the bus -> entangler
-            # when rising edges are detected
-            self.entangle_inputs[0].gate_rising_mu(numpy.int64(timeout_length))
-            self.entangle_inputs[1].gate_rising_mu(numpy.int64(timeout_length))
-            self.entangle_inputs[2].gate_rising_mu(numpy.int64(timeout_length))
-            self.entangle_inputs[3].gate_rising_mu(numpy.int64(timeout_length))
-            end_timestamp, reason = self.entangler.run_mu(timeout_length)
-        # must wait after entangler ends to schedule new events.
-        # Doesn't strictly NEED to break_realtime, but it's safe.
-        self.core.break_realtime()
-        # Disable entangler control of outputs
-        self.entangler.set_config(enable=False)
+            with parallel:
+                # Arm gates (convert timeout to int64 explicitly)
+                self.ins[0].gate_rising_mu(np.int64(self.timeout))
+                self.ins[1].gate_rising_mu(np.int64(self.timeout))
+                self.ins[2].gate_rising_mu(np.int64(self.timeout))
+                self.ins[3].gate_rising_mu(np.int64(self.timeout))
 
-        # You might also want to disable gating for inputs, but out-of-scope
+                # Pulse output during the gate window (loopback makes ttl0 rise)
+                self.out0.pulse(2 * aq_units.us)
 
-        return end_timestamp, reason
+                end_ts, reason = self.ent.run_mu(self.timeout)
 
-    @kernel
-    def check_entangler_status(self):
-        """Get Entangler end status and log to coreanalyzer.
+            self.core.break_realtime()
+            self.ent.set_config(enable=False)
 
-        Not required in normal usage, recognized pattern is returned by run_entangler().
-        """
-        delay(100 * aq_units.us)
-        status = self.entangler.get_status()
-        if status & 0b010:
-            rtio_log("entangler", "succeeded")
-        else:
-            rtio_log("entangler", "End status:", status)
+            status = self.ent.get_status()
+            ts0 = self.ent.get_timestamp_mu(0)
+            ts1 = self.ent.get_timestamp_mu(1)
+            ts2 = self.ent.get_timestamp_mu(2)
+            ts3 = self.ent.get_timestamp_mu(3)
 
-        delay(100 * aq_units.us)
-        num_cycles = self.entangler.get_ncycles()
-        rtio_log("entangler", "#cycles:", num_cycles)
-        delay(100 * aq_units.us)
-        ntriggers = self.entangler.get_ntriggers()
-        rtio_log("entangler", "#triggers (0 if no ref)", ntriggers)
-        for channel in range(num_inputs):
-            delay(150 * aq_units.us)
-            channel_timestamp = self.entangler.get_timestamp_mu(channel)
-            rtio_log("entangler", "Ch", channel, ": ts=", channel_timestamp)
-        delay(150 * aq_units.us)
+            reason_hist[i] = reason
+            status_hist[i] = status
+            end_ts_hist[i] = end_ts
+            ts_hist0[i] = ts0
+            ts_hist1[i] = ts1
+            ts_hist2[i] = ts2
+            ts_hist3[i] = ts3
+
+            if status & 0b010:
+                success_count += 1
+
+            delay(200 * aq_units.us)
+
+        # Push to datasets (single writes)
+        self.set_dataset("entangler._success_count", success_count, broadcast=True)
+        self.set_dataset("entangler._reason_hist", reason_hist, broadcast=True)
+        self.set_dataset("entangler._status_hist", status_hist, broadcast=True)
+        self.set_dataset("entangler._end_ts_hist", end_ts_hist, broadcast=True)
+        self.set_dataset("entangler._ts0", ts_hist0, broadcast=True)
+        self.set_dataset("entangler._ts1", ts_hist1, broadcast=True)
+        self.set_dataset("entangler._ts2", ts_hist2, broadcast=True)
+        self.set_dataset("entangler._ts3", ts_hist3, broadcast=True)
+
+    def analyze(self):
+        nshots = int(self.nshots)
+        success_count = int(self.get_dataset("entangler._success_count"))
+
+        reason_hist = list(self.get_dataset("entangler._reason_hist"))
+        status_hist = list(self.get_dataset("entangler._status_hist"))
+        end_ts_hist = list(self.get_dataset("entangler._end_ts_hist"))
+
+        ts0 = list(self.get_dataset("entangler._ts0"))
+        ts1 = list(self.get_dataset("entangler._ts1"))
+        ts2 = list(self.get_dataset("entangler._ts2"))
+        ts3 = list(self.get_dataset("entangler._ts3"))
+
+        ts_hist = [[ts0[i], ts1[i], ts2[i], ts3[i]] for i in range(nshots)]
+        success_rate = success_count / float(nshots) if nshots else 0.0
+
+        self.set_dataset("entangler.success_rate", success_rate, broadcast=True)
+        self.set_dataset("entangler.reason_hist", reason_hist, broadcast=True)
+        self.set_dataset("entangler.status_hist", status_hist, broadcast=True)
+        self.set_dataset("entangler.end_ts_hist", end_ts_hist, broadcast=True)
+        self.set_dataset("entangler.ts_hist", ts_hist, broadcast=True)
+
+        print(f"[EntanglerDatasetTest] success_rate={success_rate:.3f} ({success_count}/{nshots})")

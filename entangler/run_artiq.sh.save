@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CORE_IP="192.168.1.129"
+PROXY_BIND="127.0.0.1"
+PROXY_PORT="1383"
+
+pids=()
+
+cleanup() {
+  echo "Stopping..."
+  for pid in "${pids[@]:-}"; do
+    kill "$pid" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
+# Start master
+uv run artiq_master &
+pids+=($!)
+sleep 0.5
+
+# Start ctlmgr
+uv run artiq_ctlmgr &
+
+
+sleep 0.5
+
+# Start dashboard in foreground
+exec uv run artiq_dashboard

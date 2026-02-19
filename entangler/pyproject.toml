@@ -1,0 +1,56 @@
+[project]
+name = "madmax-artiq-entangler-env"
+version = "0.1.0"
+requires-python = "==3.9.*"
+
+dependencies = [
+  # the artiq 7 exact commits extracted from the flake.lock after nix developing.
+  "artiq @ git+https://github.com/QuantumQuadrate/madmax-artiq.git@344a0d29aafee60a45fe0d87e946fab9a7ac6afd",
+  "sipyco @ git+https://github.com/m-labs/sipyco.git@27312727bdb8a182bd6e222e4cbdd3f39ae41d4e",
+  "artiq-comtools @ git+https://github.com/m-labs/artiq-comtools.git@f93570d8f2ed5a3cfb3e1c16ab00f2540551e994",
+  "misoc @ git+https://github.com/m-labs/misoc.git@6085a312bca26adeca6584e37d08c8ba2e1d6e38",
+  "migen",
+
+  "entangler @ git+https://github.com/QuantumQuadrate/madmax-entangler-core.git@artiq-integration",
+
+  # ARTIQ GUI/runtime basics
+  "PyQt5<5.16",
+  "pyqtgraph",
+  "qasync",
+
+  # Core scientific stack (pin scipy high enough to avoid missing scipy.special.erf issues)
+  "numpy==1.26.*",
+  "scipy>=1.10",
+  "python-dateutil",
+  "h5py",
+  "tqdm",
+
+  # Common utilities already in your file
+  "prettytable",
+  "pyserial",
+  "python-levenshtein",
+  "lmdb",
+  "jsonschema",
+  "platformdirs",
+  "dynaconf",
+  "pygit2",
+  "llvmlite==0.43.0",
+
+  # --- Your experiment/runtime additions ---
+  "matplotlib",
+  "pyvisa",
+  "opencv-python==4.6.0.66",
+  "pylablib",
+  "tensorflow",
+  "M-LOOP",
+]
+
+[project.scripts]
+kasli-gen = "artiq_entangler_bridge.kasli_gen:main"
+
+# NOTE on Thorlabs TSI SDK:
+# You previously installed it from a local zip/wheel path. That’s normal for this SDK. :contentReference[oaicite:4]{index=4}
+# If you *want* to encode it here, use a file URL (Windows example), BUT it will only work on machines
+# with that exact path:
+#
+# "thorlabs-tsi-sdk @ file:///C:/Akbar/thorlabs/thorlabs_tsi_camera_python_sdk_package/thorlabs_tsi_sdk-0.0.8"

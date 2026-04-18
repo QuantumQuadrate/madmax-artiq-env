@@ -45,6 +45,9 @@ dependencies = [
   "M-LOOP",
 ]
 
+[tool.setuptools.packages.find]
+include = ["artiq_entangler_bridge*"]
+
 [project.scripts]
 kasli-gen = "artiq_entangler_bridge.kasli_gen:main"
 

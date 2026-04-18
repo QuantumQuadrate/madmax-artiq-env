@@ -1,0 +1,16 @@
+{
+    "target": "kasli_soc",
+    "variant": "entangler_1dio_4in_4out",
+    "hw_rev": "v1.0",
+    "drtio_role": "standalone",
+    "rtio_frequency": 125e6,
+    "peripherals": [
+        {
+            "type": "entangler",
+            "ports": [0],
+            "uses_reference": false,
+            "running_output": false,
+            "edge_counter": true
+        }
+    ]
+}

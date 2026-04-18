@@ -1,20 +1,61 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
 CORE_IP="192.168.1.129"
 PROXY_BIND="127.0.0.1"
 PROXY_PORT="1383"
+HEADLESS="${HEADLESS:-auto}"
+DEVICE_DB="$SCRIPT_DIR/device_db.py"
+DATASET_DB="$SCRIPT_DIR/dataset_db.pyon"
+REPOSITORY="$SCRIPT_DIR/repository"
+MASTER_NAME="${MASTER_NAME:-entangler}"
 
-uv run artiq_master &
+# Point dynaconf at the local settings.toml instead of the installed package's copy
+export SETTINGS_FILE_FOR_DYNACONF="$SCRIPT_DIR/settings.toml"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
+
+# Prefer the local virtualenv directly and isolate it from any surrounding
+# nix/host Python environment variables that can leak incompatible packages.
+if [[ ! -x "$SCRIPT_DIR/.venv/bin/python" ]]; then
+    echo "Missing virtualenv interpreter at $SCRIPT_DIR/.venv/bin/python" >&2
+    echo "Run 'uv sync' in $SCRIPT_DIR first." >&2
+    exit 1
+fi
+
+unset PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE __PYVENV_LAUNCHER__
+export PYTHONNOUSERSITE=1
+
+PYTHON="$SCRIPT_DIR/.venv/bin/python"
+
+echo "Starting ARTIQ master with:"
+echo "  device_db:  $DEVICE_DB"
+echo "  dataset_db: $DATASET_DB"
+echo "  repository: $REPOSITORY"
+
+"$PYTHON" -I -m artiq.frontend.artiq_master \
+    --name "$MASTER_NAME" \
+    --device-db "$DEVICE_DB" \
+    --dataset-db "$DATASET_DB" \
+    --repository "$REPOSITORY" &
 sleep 0.5
 
 # Start ctlmgr
-exec uv run artiq_ctlmgr &
+"$PYTHON" -I -m artiq_comtools.artiq_ctlmgr &
 sleep 0.5
 
-# Start moninj proxy in background with auto-restart
-exec uv run aqctl_moninj_proxy --bind "$PROXY_BIND" --port-proxy "$PROXY_PORT" "$CORE_IP" || true
+# Start moninj proxy in background
+"$PYTHON" -I -m artiq.frontend.aqctl_moninj_proxy --bind "$PROXY_BIND" --port-proxy "$PROXY_PORT" "$CORE_IP" &
 sleep 0.5
 
-# Start dashboard in foreground
-exec uv run artiq_dashboard
+if [[ "$HEADLESS" == "1" || "$HEADLESS" == "true" ]]; then
+    wait
+elif [[ "$HEADLESS" == "auto" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    echo "No GUI display detected; leaving services running without artiq_dashboard."
+    echo "Set HEADLESS=0 to force the dashboard or HEADLESS=1 to silence this message."
+    wait
+else
+    exec "$PYTHON" -I -m artiq.frontend.artiq_dashboard
+fi

@@ -9,11 +9,10 @@ device_db = {
         "class": "Core",
         "arguments": {
             "host": core_addr,
-            "ref_period": 1e-9,
-            "target": "cortexa9",
+            "ref_period": 1e-09,
+            "target": "cortexa9"
         },
     },
-
     "core_log": {
         "type": "controller",
         "host": "localhost",
@@ -44,7 +43,6 @@ device_db = {
         "module": "artiq.coredevice.dma",
         "class": "CoreDMA"
     },
-    
 
     "i2c_switch0": {
         "type": "local",
@@ -60,174 +58,91 @@ device_db = {
     },
 }
 
-# standalone peripherals
-
-device_db["ttl0"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000000},
-}
-
-device_db["ttl1"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000001},
-}
-
-device_db["ttl2"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000002},
-}
-
-device_db["ttl3"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000003},
-}
-
+# One DIO card: physical TTL0-3 are inputs, TTL4-7 are outputs.
+# The gateware presents the 4 outputs first in RTIO channel order, followed by
+# the 4 inputs (with optional edge-counter channels interleaved after inputs).
 device_db["ttl4"] = {
     "type": "local",
     "module": "artiq.coredevice.ttl",
     "class": "TTLOut",
-    "arguments": {"channel": 0x000004},
+    "arguments": {"channel": 0x000000},
 }
 
 device_db["ttl5"] = {
     "type": "local",
     "module": "artiq.coredevice.ttl",
     "class": "TTLOut",
-    "arguments": {"channel": 0x000005},
+    "arguments": {"channel": 0x000001},
 }
 
 device_db["ttl6"] = {
     "type": "local",
     "module": "artiq.coredevice.ttl",
     "class": "TTLOut",
-    "arguments": {"channel": 0x000006},
+    "arguments": {"channel": 0x000002},
 }
 
 device_db["ttl7"] = {
     "type": "local",
     "module": "artiq.coredevice.ttl",
     "class": "TTLOut",
+    "arguments": {"channel": 0x000003},
+}
+
+device_db["ttl0"] = {
+    "type": "local",
+    "module": "artiq.coredevice.ttl",
+    "class": "TTLInOut",
+    "arguments": {"channel": 0x000004},
+}
+
+device_db["ttl0_counter"] = {
+    "type": "local",
+    "module": "artiq.coredevice.edge_counter",
+    "class": "EdgeCounter",
+    "arguments": {"channel": 0x000005},
+}
+
+device_db["ttl1"] = {
+    "type": "local",
+    "module": "artiq.coredevice.ttl",
+    "class": "TTLInOut",
+    "arguments": {"channel": 0x000006},
+}
+
+device_db["ttl1_counter"] = {
+    "type": "local",
+    "module": "artiq.coredevice.edge_counter",
+    "class": "EdgeCounter",
     "arguments": {"channel": 0x000007},
 }
 
-device_db["ttl8"] = {
+device_db["ttl2"] = {
     "type": "local",
     "module": "artiq.coredevice.ttl",
     "class": "TTLInOut",
     "arguments": {"channel": 0x000008},
 }
 
-device_db["ttl8_counter"] = {
+device_db["ttl2_counter"] = {
     "type": "local",
     "module": "artiq.coredevice.edge_counter",
     "class": "EdgeCounter",
     "arguments": {"channel": 0x000009},
 }
 
-device_db["ttl9"] = {
+device_db["ttl3"] = {
     "type": "local",
     "module": "artiq.coredevice.ttl",
     "class": "TTLInOut",
     "arguments": {"channel": 0x00000a},
 }
 
-device_db["ttl9_counter"] = {
+device_db["ttl3_counter"] = {
     "type": "local",
     "module": "artiq.coredevice.edge_counter",
     "class": "EdgeCounter",
     "arguments": {"channel": 0x00000b},
-}
-
-device_db["ttl10"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x00000c},
-}
-
-device_db["ttl10_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x00000d},
-}
-
-device_db["ttl11"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x00000e},
-}
-
-device_db["ttl11_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x00000f},
-}
-
-device_db["ttl12"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000010},
-}
-
-device_db["ttl12_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x000011},
-}
-
-device_db["ttl13"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000012},
-}
-
-device_db["ttl13_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x000013},
-}
-
-device_db["ttl14"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000014},
-}
-
-device_db["ttl14_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x000015},
-}
-
-device_db["ttl15"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000016},
-}
-
-device_db["ttl15_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x000017},
 }
 
 device_db["entangler0"] = {
@@ -235,133 +150,21 @@ device_db["entangler0"] = {
     "module": "entangler.driver",
     "class": "Entangler",
     "arguments": {
-        "channel": 0x000018,
+        "channel": 0x00000c,
         "is_master": True,
     },
-}
-
-device_db["ttl16"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x000019},
-}
-
-device_db["ttl17"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x00001a},
-}
-
-device_db["ttl18"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x00001b},
-}
-
-device_db["ttl19"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLInOut",
-    "arguments": {"channel": 0x00001c},
-}
-
-device_db["ttl20"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLOut",
-    "arguments": {"channel": 0x00001d},
-}
-
-device_db["ttl21"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLOut",
-    "arguments": {"channel": 0x00001e},
-}
-
-device_db["ttl22"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLOut",
-    "arguments": {"channel": 0x00001f},
-}
-
-device_db["ttl23"] = {
-    "type": "local",
-    "module": "artiq.coredevice.ttl",
-    "class": "TTLOut",
-    "arguments": {"channel": 0x000020},
-}
-
-device_db["ttl16_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x000021},
-}
-
-device_db["ttl17_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x000022},
-}
-
-device_db["ttl18_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x000023},
-}
-
-device_db["ttl19_counter"] = {
-    "type": "local",
-    "module": "artiq.coredevice.edge_counter",
-    "class": "EdgeCounter",
-    "arguments": {"channel": 0x000024},
 }
 
 device_db["led0"] = {
     "type": "local",
     "module": "artiq.coredevice.ttl",
     "class": "TTLOut",
-    "arguments": {"channel": 0x000025}
+    "arguments": {"channel": 0x00000d}
 }
 
 device_db["led1"] = {
     "type": "local",
     "module": "artiq.coredevice.ttl",
     "class": "TTLOut",
-    "arguments": {"channel": 0x000026}
+    "arguments": {"channel": 0x00000e}
 }
-
-
-
-
-
-# device_db["entangler"] = device_db["entangler0"]
-# device_db["out0-0"] = device_db["ttl4"]
-# device_db["out0-1"] = device_db["ttl5"]
-# device_db["out0-2"] = device_db["ttl6"]
-# device_db["out0-3"] = device_db["ttl7"]
-
-# device_db["in1-0"] = device_db["ttl0"]
-# device_db["in1-1"] = device_db["ttl1"]
-# device_db["in1-2"] = device_db["ttl2"]
-# device_db["in1-3"] = device_db["ttl3"]
-
-
-# # (optional extra inputs if your code uses them)
-# device_db["in1-4"] = "ttl12"
-# device_db["in1-5"] = "ttl13"
-# device_db["in1-6"] = "ttl14"
-# device_db["in1-7"] = "ttl15"
-# device_db["in1-8"] = "ttl16"
-
-
-
-# entangler name alias (if you kept entangler0)
-device_db["entangler"] = "entangler0"

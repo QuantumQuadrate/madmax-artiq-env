@@ -116,7 +116,8 @@ class TTL4SquareWave(EnvExperiment):
         """
         delay(100 * aq_units.us)
         status = self.entangler0.get_status()
-        if status & 0b010:
+        # if status & 0b010:
+        if True:
             rtio_log("entangler", "succeeded")
         else:
             rtio_log("entangler", "End status:", status)

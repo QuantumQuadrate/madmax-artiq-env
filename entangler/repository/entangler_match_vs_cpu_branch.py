@@ -1,53 +1,31 @@
 """
-Entangler match vs CPU branch timing
-====================================
+CPU timestamp matching vs entangler-core pattern matching.
 
-This diagnostic compares two ways of reacting to a TTL edge:
+Default loopback wiring for the current one-DIO setup:
 
-1. ``cpu_branch``: a normal ARTIQ kernel opens a TTL gate, timestamps the edge,
-   checks it with an ``if`` statement, and schedules a response pulse.
-2. ``entangler_core``: the entangler core generates the same stimulus pulse,
-   matches the configured input pattern in gateware, and reports success when the
-   entangler cycle ends.
+    ttl5 output -> ttl1 input    entangler output 1 -> input 1
+    ttl4 output -> ttl3 input    entangler output 0 -> input 3
 
-Important limitation
---------------------
-The current entangler gateware does not dynamically schedule a new output at
-``click_timestamp + offset`` after a pattern match. Entangler outputs are fixed
-within the cycle. The optional entangler response marker in this experiment is
-therefore a pre-scheduled marker, not a conditional response.
+The CPU branch pulses the normal TTLOut devices, gates the normal TTLInOut
+devices, and treats the shot as a match when every expected input clicked.
 
-With only one known-good loopback, connect:
-
-    CPU/entangler stimulus output -> stimulus input
-
-For example, if ``ttl7 -> ttl2`` is the known-good jumper, leave the defaults
-``cpu_stimulus_output_name=ttl7`` and ``stimulus_input_name=ttl2`` and set
-``entangler_stimulus_output_index`` to the entangler output index that drives
-the same physical output.
-
-If you add a second jumper from the response output to a TTL input, set
-``response_monitor_input_name`` to that input to physically timestamp the
-response marker/pulse.
+The entangler branch configures the gateware sequencer to pulse the same output
+indices, gate the same input indices, and match the corresponding input pattern
+in hardware. The experiment records both the normal TTL timestamps observed while
+the entangler runs and the entangler-core input timestamps read back from the
+gateware.
 """
 
 from artiq.experiment import *
-from artiq.coredevice.rtio import rtio_input_timestamped_data
-from artiq.coredevice.rtio import rtio_output
 import numpy as np
 
-from entangler.config import settings
 
-
-CPU_BRANCH = 0
-ENTANGLER_CORE = 1
-NO_TIMESTAMP = np.int64(-1)
+NO_TIMESTAMP = -1
 ENTANGLER_TIMEOUT = 0x3FFF
-NO_DONE_EVENT = -1
 
 
 class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
-    """Compare CPU timestamp/if latency against entangler pattern matching."""
+    """Compare CPU-side TTL timestamp matching with entangler-core matching."""
 
     def build(self):
         self.setattr_device("core")
@@ -65,691 +43,582 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
         )
 
         self.setattr_argument(
-            "stimulus_input_name",
-            StringValue(default="ttl2"),
+            "cpu_output_names",
+            StringValue(default="ttl5,ttl4"),
             group="Devices",
         )
         self.setattr_argument(
-            "dark_input_name",
-            StringValue(default="ttl3"),
+            "input_names",
+            StringValue(default="ttl1,ttl3"),
             group="Devices",
         )
         self.setattr_argument(
-            "cpu_stimulus_output_name",
-            StringValue(default="ttl7"),
-            group="Devices",
-        )
-        self.setattr_argument(
-            "cpu_response_output_name",
-            StringValue(default="ttl4"),
-            group="Devices",
-        )
-        self.setattr_argument(
-            "response_monitor_input_name",
-            StringValue(default=""),
-            group="Devices",
-        )
-
-        self.setattr_argument(
-            "entangler_input_index",
-            NumberValue(default=0, min=0, max=15, step=1, ndecimals=0),
+            "entangler_output_indices",
+            StringValue(default="1,0"),
             group="Entangler",
         )
         self.setattr_argument(
-            "entangler_channel_override",
-            NumberValue(default=-1, min=-1, max=63, step=1, ndecimals=0),
+            "entangler_input_indices",
+            StringValue(default="1,3"),
             group="Entangler",
         )
         self.setattr_argument(
-            "entangler_stimulus_output_index",
-            NumberValue(default=3, min=0, max=15, step=1, ndecimals=0),
+            "pattern_override",
+            NumberValue(default=-1, min=-1, max=15, step=1, ndecimals=0),
             group="Entangler",
         )
         self.setattr_argument(
-            "enable_entangler_response_marker",
-            BooleanValue(default=True),
-            group="Entangler",
-        )
-        self.setattr_argument(
-            "entangler_response_output_index",
-            NumberValue(default=0, min=0, max=15, step=1, ndecimals=0),
+            "pattern_enable_shift",
+            NumberValue(default=-1, min=-1, max=31, step=1, ndecimals=0),
             group="Entangler",
         )
 
         self.setattr_argument(
-            "stimulus_offset_us",
-            NumberValue(default=5.0, min=0.1, max=1e6, unit="us", scale=1.0),
+            "pulse_offset_us",
+            NumberValue(default=2.0, min=0.1, max=1e6, unit="us", scale=1.0),
             group="Timing",
         )
         self.setattr_argument(
-            "stimulus_pulse_ns",
-            NumberValue(default=200.0, min=50.0, max=1e6, unit="ns", scale=1.0),
+            "pulse_width_us",
+            NumberValue(default=2.0, min=0.01, max=1e6, unit="us", scale=1.0),
             group="Timing",
         )
         self.setattr_argument(
             "cpu_gate_width_us",
-            NumberValue(default=15.0, min=1.0, max=1e6, unit="us", scale=1.0),
-            group="Timing",
-        )
-        self.setattr_argument(
-            "response_delay_us",
-            NumberValue(default=25.0, min=0.0, max=1e6, unit="us", scale=1.0),
-            group="Timing",
-        )
-        self.setattr_argument(
-            "response_pulse_ns",
-            NumberValue(default=200.0, min=50.0, max=1e6, unit="ns", scale=1.0),
+            NumberValue(default=10.0, min=0.1, max=1e6, unit="us", scale=1.0),
             group="Timing",
         )
         self.setattr_argument(
             "entangler_cycle_length_us",
-            NumberValue(default=40.0, min=1.0, max=1e6, unit="us", scale=1.0),
+            NumberValue(default=7.0, min=1.0, max=1e6, unit="us", scale=1.0),
             group="Timing",
         )
         self.setattr_argument(
-            "entangler_input_gate_pre_us",
+            "entangler_gate_pre_us",
+            NumberValue(default=1.0, min=0.0, max=1e6, unit="us", scale=1.0),
+            group="Timing",
+        )
+        self.setattr_argument(
+            "entangler_gate_post_us",
             NumberValue(default=2.0, min=0.0, max=1e6, unit="us", scale=1.0),
             group="Timing",
         )
         self.setattr_argument(
-            "entangler_input_gate_post_us",
-            NumberValue(default=5.0, min=0.0, max=1e6, unit="us", scale=1.0),
+            "entangler_run_margin_us",
+            NumberValue(default=20.0, min=1.0, max=1e6, unit="us", scale=1.0),
             group="Timing",
         )
         self.setattr_argument(
-            "response_monitor_pre_us",
-            NumberValue(default=1.0, min=0.0, max=1e6, unit="us", scale=1.0),
-            group="Timing",
-        )
-        self.setattr_argument(
-            "response_monitor_width_us",
-            NumberValue(default=6.0, min=0.1, max=1e6, unit="us", scale=1.0),
-            group="Timing",
-        )
-        self.setattr_argument(
-            "min_schedule_margin_us",
-            NumberValue(default=1.0, min=0.0, max=1e6, unit="us", scale=1.0),
-            group="Timing",
-        )
-        self.setattr_argument(
-            "max_monitor_events",
-            NumberValue(default=8, min=1, max=64, step=1, ndecimals=0),
-            group="Timing",
-        )
-        self.setattr_argument(
-            "entangler_rtio_wait_margin_us",
-            NumberValue(default=1000.0, min=1.0, max=1e6, unit="us", scale=1.0),
+            "inter_trial_us",
+            NumberValue(default=100.0, min=0.0, max=1e6, unit="us", scale=1.0),
             group="Timing",
         )
 
     def prepare(self):
-        self.repetitions_i = int(self.repetitions)
         self.variant_code = {
             "both": 0,
             "cpu_branch": 1,
             "entangler_core": 2,
         }[self.variant]
+        self.repetitions_i = int(self.repetitions)
 
-        self.num_outputs_i = int(settings.NUM_OUTPUT_CHANNELS)
-        self.num_inputs_i = int(settings.NUM_ENTANGLER_INPUT_SIGNALS)
-        self.entangler_input_index_i = int(self.entangler_input_index)
-        self.entangler_channel_override_i = int(self.entangler_channel_override)
-        self.entangler_stimulus_output_index_i = int(self.entangler_stimulus_output_index)
-        self.entangler_response_output_index_i = int(self.entangler_response_output_index)
-        self.entangler_channel_i = int(self.entangler0.channel)
-        if self.entangler_channel_override_i >= 0:
-            self.entangler_channel_i = self.entangler_channel_override_i
+        self.cpu_output_name_list = self._split_names(self.cpu_output_names)
+        self.input_name_list = self._split_names(self.input_names)
+        self.entangler_output_index_list = self._split_ints(
+            self.entangler_output_indices
+        )
+        self.entangler_input_index_list = self._split_ints(self.entangler_input_indices)
 
+        self.num_pairs_i = len(self.input_name_list)
+        if self.num_pairs_i < 1:
+            raise ValueError("input_names must contain at least one TTL device name")
+        if self.num_pairs_i > 4:
+            raise ValueError("this diagnostic supports at most four loopback pairs")
+        if len(self.cpu_output_name_list) != self.num_pairs_i:
+            raise ValueError("cpu_output_names and input_names must have equal length")
+        if len(self.entangler_output_index_list) != self.num_pairs_i:
+            raise ValueError(
+                "entangler_output_indices and input_names must have equal length"
+            )
+        if len(self.entangler_input_index_list) != self.num_pairs_i:
+            raise ValueError(
+                "entangler_input_indices and input_names must have equal length"
+            )
+
+        self.cpu_outputs = [self.get_device(name) for name in self.cpu_output_name_list]
+        self.inputs = [self.get_device(name) for name in self.input_name_list]
+
+        self.num_entangler_outputs_i = int(self.entangler0.num_outputs)
+        self.num_entangler_inputs_i = int(self.entangler0.num_inputs)
         self._validate_entangler_indices()
 
-        self.stimulus_input = self.get_device(self.stimulus_input_name)
-        self.cpu_stimulus_output = self.get_device(self.cpu_stimulus_output_name)
-        self.cpu_response_output = self.get_device(self.cpu_response_output_name)
-
-        self.have_dark_input = self.dark_input_name.strip() != ""
-        if self.have_dark_input:
-            self.dark_input = self.get_device(self.dark_input_name)
-        else:
-            self.dark_input = self.stimulus_input
-
-        self.have_response_monitor = self.response_monitor_input_name.strip() != ""
-        self.response_monitor_is_stimulus_input = False
-        self.response_monitor_is_dark_input = False
-        if self.have_response_monitor:
-            self.response_monitor_input = self.get_device(self.response_monitor_input_name)
-            self.response_monitor_is_stimulus_input = (
-                self.response_monitor_input_name == self.stimulus_input_name
+        self.pattern_override_i = int(self.pattern_override)
+        self.pattern_enable_shift_i = int(self.pattern_enable_shift)
+        if self.pattern_enable_shift_i < 0:
+            self.pattern_enable_shift_i = (
+                self.entangler0._NUM_ALLOWED_PATTERNS * self.entangler0._PATTERN_WIDTH
             )
-            self.response_monitor_is_dark_input = (
-                self.have_dark_input
-                and self.response_monitor_input_name == self.dark_input_name
-            )
+        self.expected_pattern_i = 0
+        if self.pattern_override_i >= 0:
+            self.expected_pattern_i = self.pattern_override_i
         else:
-            self.response_monitor_input = self.stimulus_input
+            for input_index in self.entangler_input_index_list:
+                self.expected_pattern_i |= 1 << input_index
 
-        ref_period = self.core.ref_period
-        self.stimulus_offset_mu = self._seconds_to_mu(self.stimulus_offset_us * us, ref_period)
-        self.stimulus_pulse_mu = max(
-            1, self._seconds_to_mu(self.stimulus_pulse_ns * ns, ref_period)
+        self.pulse_offset_mu = self.core.seconds_to_mu(self.pulse_offset_us * 1e-6)
+        self.pulse_width_mu = max(
+            1, self.core.seconds_to_mu(self.pulse_width_us * 1e-6)
         )
-        self.cpu_gate_width_mu = self._seconds_to_mu(self.cpu_gate_width_us * us, ref_period)
-        self.response_delay_mu = self._seconds_to_mu(self.response_delay_us * us, ref_period)
-        self.response_pulse_mu = max(
-            1, self._seconds_to_mu(self.response_pulse_ns * ns, ref_period)
+        self.cpu_gate_width_mu = self.core.seconds_to_mu(self.cpu_gate_width_us * 1e-6)
+        self.entangler_cycle_length_mu = self.core.seconds_to_mu(
+            self.entangler_cycle_length_us * 1e-6
         )
-        self.entangler_cycle_length_mu = self._seconds_to_mu(
-            self.entangler_cycle_length_us * us, ref_period
+        self.entangler_gate_pre_mu = self.core.seconds_to_mu(
+            self.entangler_gate_pre_us * 1e-6
         )
-        self.entangler_input_gate_pre_mu = self._seconds_to_mu(
-            self.entangler_input_gate_pre_us * us, ref_period
+        self.entangler_gate_post_mu = self.core.seconds_to_mu(
+            self.entangler_gate_post_us * 1e-6
         )
-        self.entangler_input_gate_post_mu = self._seconds_to_mu(
-            self.entangler_input_gate_post_us * us, ref_period
+        self.entangler_run_margin_mu = self.core.seconds_to_mu(
+            self.entangler_run_margin_us * 1e-6
         )
-        self.response_monitor_pre_mu = self._seconds_to_mu(
-            self.response_monitor_pre_us * us, ref_period
-        )
-        self.response_monitor_width_mu = self._seconds_to_mu(
-            self.response_monitor_width_us * us, ref_period
-        )
-        self.min_schedule_margin_mu = self._seconds_to_mu(
-            self.min_schedule_margin_us * us, ref_period
-        )
-        self.max_monitor_events_i = int(self.max_monitor_events)
-        self.entangler_rtio_wait_margin_mu = self._seconds_to_mu(
-            self.entangler_rtio_wait_margin_us * us, ref_period
-        )
+        self.inter_trial_mu = self.core.seconds_to_mu(self.inter_trial_us * 1e-6)
 
-        self.entangler_input_gate_start_mu = max(
-            8, self.stimulus_offset_mu - self.entangler_input_gate_pre_mu
+        self.entangler_gate_start_mu = max(
+            8, self.pulse_offset_mu - self.entangler_gate_pre_mu
         )
-        self.entangler_input_gate_stop_mu = (
-            self.stimulus_offset_mu
-            + self.stimulus_pulse_mu
-            + self.entangler_input_gate_post_mu
+        self.entangler_gate_stop_mu = (
+            self.pulse_offset_mu + self.pulse_width_mu + self.entangler_gate_post_mu
         )
-        self.entangler_response_start_mu = self.stimulus_offset_mu + self.response_delay_mu
-        self.entangler_response_stop_mu = (
-            self.entangler_response_start_mu + self.response_pulse_mu
-        )
-        self.entangler_timeout_mu = self.entangler_cycle_length_mu + self._seconds_to_mu(
-            10.0 * us, ref_period
+        self.entangler_timeout_mu = (
+            self.entangler_cycle_length_mu + self.entangler_run_margin_mu
         )
 
         self._validate_timing()
-
-        self.cpu_samples = []
-        self.entangler_samples = []
+        self._allocate_results()
 
     @staticmethod
-    def _seconds_to_mu(seconds, ref_period):
-        return int(round(seconds / ref_period))
+    def _split_names(value):
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    @staticmethod
+    def _split_ints(value):
+        return [int(item.strip(), 0) for item in value.split(",") if item.strip()]
 
     def _validate_entangler_indices(self):
-        if self.entangler_input_index_i >= self.num_inputs_i:
-            raise ValueError(
-                "entangler_input_index={} but gateware has {} entangler inputs".format(
-                    self.entangler_input_index_i, self.num_inputs_i
-                )
-            )
-        if self.entangler_stimulus_output_index_i >= self.num_outputs_i:
-            raise ValueError(
-                "entangler_stimulus_output_index={} but gateware has {} outputs".format(
-                    self.entangler_stimulus_output_index_i, self.num_outputs_i
-                )
-            )
-        if self.entangler_response_output_index_i >= self.num_outputs_i:
-            raise ValueError(
-                "entangler_response_output_index={} but gateware has {} outputs".format(
-                    self.entangler_response_output_index_i, self.num_outputs_i
-                )
-            )
-        if (
-            self.enable_entangler_response_marker
-            and self.entangler_response_output_index_i
-            == self.entangler_stimulus_output_index_i
+        if len(set(self.entangler_output_index_list)) != len(
+            self.entangler_output_index_list
         ):
-            raise ValueError(
-                "The current entangler sequencer supports one pulse window per output; "
-                "use different stimulus and response output indices."
-            )
+            raise ValueError("entangler_output_indices must be unique")
+        if len(set(self.entangler_input_index_list)) != len(
+            self.entangler_input_index_list
+        ):
+            raise ValueError("entangler_input_indices must be unique")
+
+        for output_index in self.entangler_output_index_list:
+            if output_index < 0 or output_index >= self.num_entangler_outputs_i:
+                raise ValueError(
+                    "entangler output index {} outside available outputs 0..{}".format(
+                        output_index, self.num_entangler_outputs_i - 1
+                    )
+                )
+
+        for input_index in self.entangler_input_index_list:
+            if input_index < 0 or input_index >= self.num_entangler_inputs_i:
+                raise ValueError(
+                    "entangler input index {} outside available inputs 0..{}".format(
+                        input_index, self.num_entangler_inputs_i - 1
+                    )
+                )
 
     def _validate_timing(self):
-        if self.stimulus_offset_mu + self.stimulus_pulse_mu >= self.cpu_gate_width_mu:
-            raise ValueError("CPU gate must stay open through the stimulus pulse")
-        if self.entangler_input_gate_stop_mu >= self.entangler_cycle_length_mu:
-            raise ValueError("Entangler input gate must end before the cycle ends")
-        if self.enable_entangler_response_marker:
-            if self.entangler_response_stop_mu >= self.entangler_cycle_length_mu:
-                raise ValueError("Entangler response marker must end before the cycle ends")
-            if self.entangler_response_start_mu <= self.stimulus_offset_mu:
-                raise ValueError("Entangler response marker should be after the stimulus")
+        if self.pulse_offset_mu + self.pulse_width_mu >= self.cpu_gate_width_mu:
+            raise ValueError("cpu_gate_width_us must cover pulse_offset_us + pulse_width_us")
+        if (self.entangler_cycle_length_mu >> 3) > 1023:
+            raise ValueError(
+                "entangler_cycle_length_us is too large for this PHY; use <= ~8.18 us"
+            )
+        if self.entangler_gate_stop_mu >= self.entangler_cycle_length_mu:
+            raise ValueError("entangler input gate must end before the cycle ends")
+        if self.entangler_timeout_mu <= self.entangler_cycle_length_mu:
+            raise ValueError("entangler timeout must extend beyond one cycle")
+
+    def _allocate_results(self):
+        self.cpu_pulse_mu = [NO_TIMESTAMP for _ in range(self.repetitions_i)]
+        self.cpu_click_mu = [
+            [NO_TIMESTAMP for _ in range(self.num_pairs_i)]
+            for _ in range(self.repetitions_i)
+        ]
+        self.cpu_counts = [
+            [0 for _ in range(self.num_pairs_i)] for _ in range(self.repetitions_i)
+        ]
+        self.cpu_matched = [0 for _ in range(self.repetitions_i)]
+        self.cpu_decision_wall_mu = [
+            NO_TIMESTAMP for _ in range(self.repetitions_i)
+        ]
+
+        self.entangler_ttl_click_mu = [
+            [NO_TIMESTAMP for _ in range(self.num_pairs_i)]
+            for _ in range(self.repetitions_i)
+        ]
+        self.entangler_ttl_counts = [
+            [0 for _ in range(self.num_pairs_i)] for _ in range(self.repetitions_i)
+        ]
+        self.entangler_input_ts_mu = [
+            [NO_TIMESTAMP for _ in range(self.num_pairs_i)]
+            for _ in range(self.repetitions_i)
+        ]
+        self.entangler_run_end_mu = [
+            NO_TIMESTAMP for _ in range(self.repetitions_i)
+        ]
+        self.entangler_reason = [NO_TIMESTAMP for _ in range(self.repetitions_i)]
+        self.entangler_status = [NO_TIMESTAMP for _ in range(self.repetitions_i)]
+        self.entangler_ncycles = [NO_TIMESTAMP for _ in range(self.repetitions_i)]
+        self.entangler_success = [0 for _ in range(self.repetitions_i)]
+        self.entangler_wall_after_run_mu = [
+            NO_TIMESTAMP for _ in range(self.repetitions_i)
+        ]
 
     @rpc
-    def _record_cpu_sample(
+    def _record_cpu_trial(
         self,
-        click_mu: TInt64,
-        dark_click_mu: TInt64,
-        decision_cursor_mu: TInt64,
+        trial: TInt32,
+        pulse_mu: TInt64,
+        matched: TInt32,
         decision_wall_mu: TInt64,
-        response_target_mu: TInt64,
-        schedule_done_cursor_mu: TInt64,
-        schedule_done_wall_mu: TInt64,
-        monitor_mu: TInt64,
-        condition_met: TInt32,
-        missed_response: TInt32,
     ):
-        self.cpu_samples.append(
-            {
-                "click_mu": int(click_mu),
-                "dark_click_mu": int(dark_click_mu),
-                "decision_cursor_mu": int(decision_cursor_mu),
-                "decision_wall_mu": int(decision_wall_mu),
-                "response_target_mu": int(response_target_mu),
-                "schedule_done_cursor_mu": int(schedule_done_cursor_mu),
-                "schedule_done_wall_mu": int(schedule_done_wall_mu),
-                "monitor_mu": int(monitor_mu),
-                "condition_met": int(condition_met),
-                "missed_response": int(missed_response),
-            }
-        )
+        trial_i = int(trial)
+        self.cpu_pulse_mu[trial_i] = int(pulse_mu)
+        self.cpu_matched[trial_i] = int(matched)
+        self.cpu_decision_wall_mu[trial_i] = int(decision_wall_mu)
 
     @rpc
-    def _record_entangler_sample(
+    def _record_cpu_input(
         self,
-        ttl_click_mu: TInt64,
-        dark_click_mu: TInt64,
-        entangler_input_ts_mu: TInt32,
+        trial: TInt32,
+        input_i: TInt32,
+        click_mu: TInt64,
+        count: TInt32,
+    ):
+        self.cpu_click_mu[int(trial)][int(input_i)] = int(click_mu)
+        self.cpu_counts[int(trial)][int(input_i)] = int(count)
+
+    @rpc
+    def _record_entangler_trial(
+        self,
+        trial: TInt32,
         run_end_mu: TInt64,
         reason: TInt32,
         status: TInt32,
         ncycles: TInt32,
+        success: TInt32,
         wall_after_run_mu: TInt64,
-        response_target_mu: TInt64,
-        monitor_mu: TInt64,
     ):
-        self.entangler_samples.append(
-            {
-                "ttl_click_mu": int(ttl_click_mu),
-                "dark_click_mu": int(dark_click_mu),
-                "entangler_input_ts_mu": int(entangler_input_ts_mu),
-                "run_end_mu": int(run_end_mu),
-                "reason": int(reason),
-                "status": int(status),
-                "ncycles": int(ncycles),
-                "wall_after_run_mu": int(wall_after_run_mu),
-                "response_target_mu": int(response_target_mu),
-                "monitor_mu": int(monitor_mu),
-            }
-        )
+        trial_i = int(trial)
+        self.entangler_run_end_mu[trial_i] = int(run_end_mu)
+        self.entangler_reason[trial_i] = int(reason)
+        self.entangler_status[trial_i] = int(status)
+        self.entangler_ncycles[trial_i] = int(ncycles)
+        self.entangler_success[trial_i] = int(success)
+        self.entangler_wall_after_run_mu[trial_i] = int(wall_after_run_mu)
+
+    @rpc
+    def _record_entangler_input(
+        self,
+        trial: TInt32,
+        input_i: TInt32,
+        ttl_click_mu: TInt64,
+        ttl_count: TInt32,
+        entangler_ts_mu: TInt32,
+    ):
+        self.entangler_ttl_click_mu[int(trial)][int(input_i)] = int(ttl_click_mu)
+        self.entangler_ttl_counts[int(trial)][int(input_i)] = int(ttl_count)
+        self.entangler_input_ts_mu[int(trial)][int(input_i)] = int(entangler_ts_mu)
 
     @kernel
     def _setup_cpu_io(self):
-        self.stimulus_input.input()
-        if self.have_dark_input:
-            self.dark_input.input()
-        if self.have_response_monitor:
-            self.response_monitor_input.input()
-
-        self.cpu_stimulus_output.output()
-        self.cpu_response_output.output()
-        self.cpu_stimulus_output.off()
-        self.cpu_response_output.off()
+        self.entangler0.set_config(False, True)
+        for ttl_input in self.inputs:
+            ttl_input.input()
+        for ttl_output in self.cpu_outputs:
+            ttl_output.output()
+            ttl_output.off()
         self.core.break_realtime()
 
     @kernel
-    def _setup_entangler_io(self):
-        self.stimulus_input.input()
-        if self.have_dark_input:
-            self.dark_input.input()
-        if self.have_response_monitor:
-            self.response_monitor_input.input()
-
-        self.cpu_stimulus_output.output()
-        self.cpu_response_output.output()
-        self.cpu_stimulus_output.off()
-        self.cpu_response_output.off()
+    def _setup_entangler_monitor_io(self):
+        for ttl_input in self.inputs:
+            ttl_input.input()
+        for ttl_output in self.cpu_outputs:
+            ttl_output.output()
+            ttl_output.off()
         self.core.break_realtime()
-
-    @kernel
-    def _read_first_timestamp_at_or_after(
-        self, ttl, deadline_mu: TInt64, threshold_mu: TInt64
-    ) -> TInt64:
-        found = NO_TIMESTAMP
-        for _ in range(self.max_monitor_events_i):
-            t_mu = ttl.timestamp_mu(deadline_mu)
-            if t_mu < 0:
-                break
-            if found < 0 and t_mu >= threshold_mu:
-                found = t_mu
-        return found
 
     @kernel
     def run_cpu_branch_kernel(self):
         self.core.reset()
         self._setup_cpu_io()
 
-        for _ in range(self.repetitions_i):
+        for trial in range(self.repetitions_i):
             self.core.break_realtime()
-            t_start_mu = now_mu()
+            for ttl_output in self.cpu_outputs:
+                ttl_output.off()
+            delay_mu(self.inter_trial_mu)
 
-            if self.have_dark_input:
+            t_start_mu = now_mu()
+            t_pulse_mu = t_start_mu + self.pulse_offset_mu
+
+            if self.num_pairs_i == 1:
                 with parallel:
-                    t_signal_end_mu = self.stimulus_input.gate_rising_mu(
-                        np.int64(self.cpu_gate_width_mu)
-                    )
-                    t_dark_end_mu = self.dark_input.gate_rising_mu(
-                        np.int64(self.cpu_gate_width_mu)
-                    )
-                    at_mu(t_start_mu + self.stimulus_offset_mu)
-                    self.cpu_stimulus_output.pulse_mu(np.int64(self.stimulus_pulse_mu))
+                    self.inputs[0].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    with sequential:
+                        at_mu(t_pulse_mu)
+                        self.cpu_outputs[0].pulse_mu(np.int64(self.pulse_width_mu))
+            elif self.num_pairs_i == 2:
+                with parallel:
+                    self.inputs[0].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    self.inputs[1].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    with sequential:
+                        at_mu(t_pulse_mu)
+                        with parallel:
+                            self.cpu_outputs[0].pulse_mu(
+                                np.int64(self.pulse_width_mu)
+                            )
+                            self.cpu_outputs[1].pulse_mu(
+                                np.int64(self.pulse_width_mu)
+                            )
+            elif self.num_pairs_i == 3:
+                with parallel:
+                    self.inputs[0].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    self.inputs[1].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    self.inputs[2].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    with sequential:
+                        at_mu(t_pulse_mu)
+                        with parallel:
+                            self.cpu_outputs[0].pulse_mu(
+                                np.int64(self.pulse_width_mu)
+                            )
+                            self.cpu_outputs[1].pulse_mu(
+                                np.int64(self.pulse_width_mu)
+                            )
+                            self.cpu_outputs[2].pulse_mu(
+                                np.int64(self.pulse_width_mu)
+                            )
             else:
                 with parallel:
-                    t_signal_end_mu = self.stimulus_input.gate_rising_mu(
-                        np.int64(self.cpu_gate_width_mu)
-                    )
-                    at_mu(t_start_mu + self.stimulus_offset_mu)
-                    self.cpu_stimulus_output.pulse_mu(np.int64(self.stimulus_pulse_mu))
-                t_dark_end_mu = NO_TIMESTAMP
-
-            click_mu = self.stimulus_input.timestamp_mu(t_signal_end_mu)
-            dark_click_mu = NO_TIMESTAMP
-            if self.have_dark_input:
-                dark_click_mu = self.dark_input.timestamp_mu(t_dark_end_mu)
-
-            decision_cursor_mu = now_mu()
-            decision_wall_mu = self.core.get_rtio_counter_mu()
-            response_target_mu = NO_TIMESTAMP
-            schedule_done_cursor_mu = decision_cursor_mu
-            schedule_done_wall_mu = decision_wall_mu
-            monitor_mu = NO_TIMESTAMP
-            condition_met = 0
-            missed_response = 0
-
-            if click_mu > 0 and dark_click_mu < 0:
-                condition_met = 1
-                response_target_mu = click_mu + self.response_delay_mu
-
-                if response_target_mu - decision_wall_mu <= self.min_schedule_margin_mu:
-                    missed_response = 1
-                else:
-                    if self.have_response_monitor:
-                        monitor_start_mu = response_target_mu - self.response_monitor_pre_mu
-                        if monitor_start_mu < decision_cursor_mu:
-                            monitor_start_mu = decision_cursor_mu
-                        at_mu(monitor_start_mu)
+                    self.inputs[0].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    self.inputs[1].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    self.inputs[2].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    self.inputs[3].gate_rising_mu(np.int64(self.cpu_gate_width_mu))
+                    with sequential:
+                        at_mu(t_pulse_mu)
                         with parallel:
-                            t_monitor_end_mu = self.response_monitor_input.gate_rising_mu(
-                                np.int64(self.response_monitor_width_mu)
+                            self.cpu_outputs[0].pulse_mu(
+                                np.int64(self.pulse_width_mu)
                             )
-                            at_mu(response_target_mu)
-                            self.cpu_response_output.pulse_mu(
-                                np.int64(self.response_pulse_mu)
+                            self.cpu_outputs[1].pulse_mu(
+                                np.int64(self.pulse_width_mu)
                             )
-                        monitor_mu = self._read_first_timestamp_at_or_after(
-                            self.response_monitor_input,
-                            t_monitor_end_mu,
-                            response_target_mu - self.response_monitor_pre_mu,
-                        )
-                    else:
-                        at_mu(response_target_mu)
-                        self.cpu_response_output.pulse_mu(np.int64(self.response_pulse_mu))
+                            self.cpu_outputs[2].pulse_mu(
+                                np.int64(self.pulse_width_mu)
+                            )
+                            self.cpu_outputs[3].pulse_mu(
+                                np.int64(self.pulse_width_mu)
+                            )
 
-                    schedule_done_cursor_mu = now_mu()
-                    schedule_done_wall_mu = self.core.get_rtio_counter_mu()
+            t_gate_end_mu = now_mu()
+            matched = 1
+            click0_mu = NO_TIMESTAMP
+            click1_mu = NO_TIMESTAMP
+            click2_mu = NO_TIMESTAMP
+            click3_mu = NO_TIMESTAMP
 
-            self._record_cpu_sample(
-                click_mu,
-                dark_click_mu,
-                decision_cursor_mu,
-                decision_wall_mu,
-                response_target_mu,
-                schedule_done_cursor_mu,
-                schedule_done_wall_mu,
-                monitor_mu,
-                condition_met,
-                missed_response,
-            )
+            click0_mu = self.inputs[0].timestamp_mu(t_gate_end_mu)
+            if click0_mu < 0:
+                matched = 0
+            if self.num_pairs_i >= 2:
+                click1_mu = self.inputs[1].timestamp_mu(t_gate_end_mu)
+                if click1_mu < 0:
+                    matched = 0
+            if self.num_pairs_i >= 3:
+                click2_mu = self.inputs[2].timestamp_mu(t_gate_end_mu)
+                if click2_mu < 0:
+                    matched = 0
+            if self.num_pairs_i >= 4:
+                click3_mu = self.inputs[3].timestamp_mu(t_gate_end_mu)
+                if click3_mu < 0:
+                    matched = 0
 
-    @kernel
-    def _entangler_write(self, addr: TInt32, value: TInt32):
-        rtio_output((self.entangler_channel_i << 8) | addr, value)
-        delay_mu(self.entangler0.ref_period_mu)
+            decision_wall_mu = self.core.get_rtio_counter_mu()
 
-    @kernel
-    def _entangler_set_config(self, enable: TBool, standalone: TBool):
-        data = 0
-        if enable:
-            data |= 1
-        if self.entangler0.is_master:
-            data |= 1 << 1
-        if standalone:
-            data |= 1 << 2
-        self._entangler_write(self.entangler0._ADDRESS_WRITE.CONFIG, data)
+            count0 = 0
+            count1 = 0
+            count2 = 0
+            count3 = 0
+            if click0_mu >= 0:
+                count0 = 1 + self.inputs[0].count(t_gate_end_mu)
+            if self.num_pairs_i >= 2 and click1_mu >= 0:
+                count1 = 1 + self.inputs[1].count(t_gate_end_mu)
+            if self.num_pairs_i >= 3 and click2_mu >= 0:
+                count2 = 1 + self.inputs[2].count(t_gate_end_mu)
+            if self.num_pairs_i >= 4 and click3_mu >= 0:
+                count3 = 1 + self.inputs[3].count(t_gate_end_mu)
 
-    @kernel
-    def _entangler_set_timing_mu(
-        self, channel: TInt32, t_start_mu: TInt32, t_stop_mu: TInt32
-    ):
-        if channel < self.num_outputs_i:
-            t_start_mu = t_start_mu >> 3
-            t_stop_mu = t_stop_mu >> 3
+            self._record_cpu_input(trial, 0, click0_mu, count0)
+            if self.num_pairs_i >= 2:
+                self._record_cpu_input(trial, 1, click1_mu, count1)
+            if self.num_pairs_i >= 3:
+                self._record_cpu_input(trial, 2, click2_mu, count2)
+            if self.num_pairs_i >= 4:
+                self._record_cpu_input(trial, 3, click3_mu, count3)
+            self._record_cpu_trial(trial, t_pulse_mu, matched, decision_wall_mu)
 
-        t_start_mu += 1
-        t_stop_mu += 1
-        t_start_mu &= self.entangler0._SEQUENCER_TIME_MASK
-        t_stop_mu &= self.entangler0._SEQUENCER_TIME_MASK
-
-        self._entangler_write(
-            self.entangler0._ADDRESS_WRITE.TIMING + channel,
-            np.int32((t_stop_mu << 16) | t_start_mu),
-        )
-
-    @kernel
-    def _entangler_set_cycle_length_mu(self, t_cycle_mu: TInt32):
-        self._entangler_write(
-            self.entangler0._ADDRESS_WRITE.TCYCLE,
-            np.int32(t_cycle_mu >> 3),
-        )
-
-    @kernel
-    def _entangler_set_patterns(self):
-        pattern = np.int32(1 << self.entangler_input_index_i)
-        data = pattern & self.entangler0._PATTERN_LENGTH_MASK
-        data |= 1 << (
-            self.entangler0._NUM_ALLOWED_PATTERNS * self.entangler0._PATTERN_WIDTH
-        )
-        self._entangler_write(self.entangler0._ADDRESS_WRITE.PATTERNS, np.int32(data))
-
-    @kernel
-    def _configure_entangler_core(self):
-        self._entangler_set_config(False, True)
-
-        disabled_start_mu = self.entangler_cycle_length_mu + 8
-        disabled_stop_mu = self.entangler_cycle_length_mu + 16
-
-        for channel in range(self.num_outputs_i):
-            self._entangler_set_timing_mu(
-                channel, np.int32(disabled_start_mu), np.int32(disabled_stop_mu)
-            )
-
-        self._entangler_set_timing_mu(
-            self.entangler_stimulus_output_index_i,
-            np.int32(self.stimulus_offset_mu),
-            np.int32(self.stimulus_offset_mu + self.stimulus_pulse_mu),
-        )
-
-        if self.enable_entangler_response_marker:
-            self._entangler_set_timing_mu(
-                self.entangler_response_output_index_i,
-                np.int32(self.entangler_response_start_mu),
-                np.int32(self.entangler_response_stop_mu),
-            )
-
-        for input_index in range(self.num_inputs_i):
-            self._entangler_set_timing_mu(
-                self.num_outputs_i + input_index, np.int32(0), np.int32(0)
-            )
-
-        self._entangler_set_timing_mu(
-            self.num_outputs_i + self.entangler_input_index_i,
-            np.int32(self.entangler_input_gate_start_mu),
-            np.int32(self.entangler_input_gate_stop_mu),
-        )
-
-        self._entangler_set_cycle_length_mu(np.int32(self.entangler_cycle_length_mu))
-        self._entangler_set_patterns()
-        self._entangler_set_config(True, True)
+        self.core.break_realtime()
+        for ttl_output in self.cpu_outputs:
+            ttl_output.off()
         self.core.break_realtime()
 
     @kernel
-    def _run_entangler_core_bounded(self) -> TTuple([TInt64, TInt32]):
-        duration_coarse_mu = self.entangler_timeout_mu >> 3
-        self._entangler_write(
-            self.entangler0._ADDRESS_WRITE.RUN,
-            np.int32(duration_coarse_mu),
-        )
-        deadline_mu = now_mu() + self.entangler_timeout_mu + self.entangler_rtio_wait_margin_mu
-        return rtio_input_timestamped_data(np.int64(deadline_mu), self.entangler_channel_i)
+    def _disable_all_entangler_channels(self):
+        disabled_start_mu = self.entangler_cycle_length_mu + 8
+        disabled_stop_mu = self.entangler_cycle_length_mu + 16
+
+        for output_i in range(self.num_entangler_outputs_i):
+            self.entangler0.set_timing_mu(
+                output_i, np.int32(disabled_start_mu), np.int32(disabled_stop_mu)
+            )
+
+        for input_i in range(self.num_entangler_inputs_i):
+            self.entangler0.set_timing_mu(
+                self.num_entangler_outputs_i + input_i, np.int32(0), np.int32(0)
+            )
+
+    @kernel
+    def _set_single_entangler_pattern(self):
+        data = np.int32(self.expected_pattern_i | (1 << self.pattern_enable_shift_i))
+        self.entangler0._write(self.entangler0._ADDRESS_WRITE.PATTERNS, data)
+
+    @kernel
+    def _configure_entangler_core(self):
+        self.entangler0.set_config(False, True)
+        self._disable_all_entangler_channels()
+
+        for i in range(self.num_pairs_i):
+            self.entangler0.set_timing_mu(
+                self.entangler_output_index_list[i],
+                np.int32(self.pulse_offset_mu),
+                np.int32(self.pulse_offset_mu + self.pulse_width_mu),
+            )
+            self.entangler0.set_timing_mu(
+                self.num_entangler_outputs_i + self.entangler_input_index_list[i],
+                np.int32(self.entangler_gate_start_mu),
+                np.int32(self.entangler_gate_stop_mu),
+            )
+
+        self.entangler0.set_cycle_length_mu(np.int32(self.entangler_cycle_length_mu))
+        self.entangler0.set_config(True, True)
+        self.core.break_realtime()
+        self._set_single_entangler_pattern()
+        self.core.break_realtime()
 
     @kernel
     def run_entangler_core_kernel(self):
         self.core.reset()
-        self._setup_entangler_io()
+        self._setup_entangler_monitor_io()
         self._configure_entangler_core()
 
-        for _ in range(self.repetitions_i):
+        for trial in range(self.repetitions_i):
             self.core.break_realtime()
+            delay_mu(self.inter_trial_mu)
 
-            if self.have_dark_input:
-                if self.have_response_monitor and not (
-                    self.response_monitor_is_stimulus_input
-                    or self.response_monitor_is_dark_input
-                ):
-                    with parallel:
-                        t_signal_end_mu = self.stimulus_input.gate_rising_mu(
-                            np.int64(self.entangler_timeout_mu)
-                        )
-                        t_dark_end_mu = self.dark_input.gate_rising_mu(
-                            np.int64(self.entangler_timeout_mu)
-                        )
-                        t_monitor_end_mu = self.response_monitor_input.gate_rising_mu(
-                            np.int64(self.entangler_timeout_mu)
-                        )
-                        run_end_mu, reason = self._run_entangler_core_bounded()
-                else:
-                    with parallel:
-                        t_signal_end_mu = self.stimulus_input.gate_rising_mu(
-                            np.int64(self.entangler_timeout_mu)
-                        )
-                        t_dark_end_mu = self.dark_input.gate_rising_mu(
-                            np.int64(self.entangler_timeout_mu)
-                        )
-                        run_end_mu, reason = self._run_entangler_core_bounded()
-                    t_monitor_end_mu = NO_TIMESTAMP
+            if self.num_pairs_i == 1:
+                with parallel:
+                    self.inputs[0].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    run_end_mu, reason = self.entangler0.run_mu(
+                        np.int32(self.entangler_timeout_mu)
+                    )
+            elif self.num_pairs_i == 2:
+                with parallel:
+                    self.inputs[0].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    self.inputs[1].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    run_end_mu, reason = self.entangler0.run_mu(
+                        np.int32(self.entangler_timeout_mu)
+                    )
+            elif self.num_pairs_i == 3:
+                with parallel:
+                    self.inputs[0].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    self.inputs[1].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    self.inputs[2].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    run_end_mu, reason = self.entangler0.run_mu(
+                        np.int32(self.entangler_timeout_mu)
+                    )
             else:
-                if self.have_response_monitor and not self.response_monitor_is_stimulus_input:
-                    with parallel:
-                        t_signal_end_mu = self.stimulus_input.gate_rising_mu(
-                            np.int64(self.entangler_timeout_mu)
-                        )
-                        t_monitor_end_mu = self.response_monitor_input.gate_rising_mu(
-                            np.int64(self.entangler_timeout_mu)
-                        )
-                        run_end_mu, reason = self._run_entangler_core_bounded()
-                else:
-                    with parallel:
-                        t_signal_end_mu = self.stimulus_input.gate_rising_mu(
-                            np.int64(self.entangler_timeout_mu)
-                        )
-                        run_end_mu, reason = self._run_entangler_core_bounded()
-                    t_monitor_end_mu = NO_TIMESTAMP
-                t_dark_end_mu = NO_TIMESTAMP
+                with parallel:
+                    self.inputs[0].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    self.inputs[1].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    self.inputs[2].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    self.inputs[3].gate_rising_mu(np.int64(self.entangler_timeout_mu))
+                    run_end_mu, reason = self.entangler0.run_mu(
+                        np.int32(self.entangler_timeout_mu)
+                    )
 
+            t_gate_end_mu = now_mu()
             wall_after_run_mu = self.core.get_rtio_counter_mu()
             self.core.break_realtime()
 
-            ttl_click_mu = self.stimulus_input.timestamp_mu(t_signal_end_mu)
-            dark_click_mu = NO_TIMESTAMP
-            if self.have_dark_input:
-                dark_click_mu = self.dark_input.timestamp_mu(t_dark_end_mu)
-
-            entangler_input_ts_mu = NO_DONE_EVENT
-            status = NO_DONE_EVENT
-            ncycles = NO_DONE_EVENT
+            status = NO_TIMESTAMP
+            ncycles = NO_TIMESTAMP
+            success = 0
             if run_end_mu >= 0:
-                entangler_input_ts_mu = self.entangler0.get_timestamp_mu(
-                    self.entangler_input_index_i
-                )
+                self.core.break_realtime()
                 status = self.entangler0.get_status()
+                self.core.break_realtime()
                 ncycles = self.entangler0.get_ncycles()
+                if reason != ENTANGLER_TIMEOUT:
+                    success = 1
 
-            response_target_mu = NO_TIMESTAMP
-            monitor_mu = NO_TIMESTAMP
-            if ttl_click_mu > 0 and entangler_input_ts_mu > 0:
-                response_target_mu = (
-                    ttl_click_mu
-                    - entangler_input_ts_mu
-                    + self.entangler_response_start_mu
+            for i in range(self.num_pairs_i):
+                ttl_click_mu = self.inputs[i].timestamp_mu(t_gate_end_mu)
+                ttl_count = 0
+                if ttl_click_mu >= 0:
+                    ttl_count = 1 + self.inputs[i].count(t_gate_end_mu)
+
+                entangler_ts_mu = NO_TIMESTAMP
+                if run_end_mu >= 0:
+                    self.core.break_realtime()
+                    entangler_ts_mu = self.entangler0.get_timestamp_mu(
+                        self.entangler_input_index_list[i]
+                    )
+
+                self._record_entangler_input(
+                    trial, i, ttl_click_mu, ttl_count, entangler_ts_mu
                 )
 
-            if run_end_mu >= 0 and self.have_response_monitor and response_target_mu > 0:
-                monitor_threshold_mu = response_target_mu - self.response_monitor_pre_mu
-                if self.response_monitor_is_stimulus_input:
-                    monitor_mu = self._read_first_timestamp_at_or_after(
-                        self.stimulus_input, t_signal_end_mu, monitor_threshold_mu
-                    )
-                elif self.response_monitor_is_dark_input:
-                    if dark_click_mu >= monitor_threshold_mu:
-                        monitor_mu = dark_click_mu
-                    else:
-                        monitor_mu = self._read_first_timestamp_at_or_after(
-                            self.dark_input, t_dark_end_mu, monitor_threshold_mu
-                        )
-                else:
-                    monitor_mu = self._read_first_timestamp_at_or_after(
-                        self.response_monitor_input,
-                        t_monitor_end_mu,
-                        monitor_threshold_mu,
-                    )
-
-            self._record_entangler_sample(
-                ttl_click_mu,
-                dark_click_mu,
-                entangler_input_ts_mu,
+            self._record_entangler_trial(
+                trial,
                 run_end_mu,
                 reason,
                 status,
                 ncycles,
+                success,
                 wall_after_run_mu,
-                response_target_mu,
-                monitor_mu,
             )
 
         self.core.break_realtime()
-        self._entangler_set_config(False, True)
+        self.entangler0.set_config(False, True)
         self.core.break_realtime()
 
     def run(self):
-        print("=== Entangler Match vs CPU Branch Timing ===")
+        print("=== CPU vs Entangler Core Match Timestamp ===")
         print("variant:", self.variant)
-        print("stimulus:", self.cpu_stimulus_output_name, "->", self.stimulus_input_name)
-        print("dark input:", self.dark_input_name if self.have_dark_input else "(none)")
-        print("cpu response output:", self.cpu_response_output_name)
-        print(
-            "entangler stimulus output index:",
-            self.entangler_stimulus_output_index_i,
-        )
-        print("entangler input index:", self.entangler_input_index_i)
-        print("entangler RTIO channel:", self.entangler_channel_i)
-        print(
-            "entangler response marker:",
-            "enabled" if self.enable_entangler_response_marker else "disabled",
-        )
-        if self.have_response_monitor:
-            print("response monitor:", self.response_monitor_input_name)
-        else:
-            print("response monitor: (none)")
+        print("CPU outputs:", ", ".join(self.cpu_output_name_list))
+        print("TTL inputs:", ", ".join(self.input_name_list))
+        print("entangler outputs:", self.entangler_output_index_list)
+        print("entangler inputs:", self.entangler_input_index_list)
+        print("expected pattern:", bin(self.expected_pattern_i))
+        print("pattern enable shift:", self.pattern_enable_shift_i)
+        print("pulse offset/width us:", self.pulse_offset_us, "/", self.pulse_width_us)
+        print("")
 
         if self.variant_code in (0, 1):
             self.run_cpu_branch_kernel()
@@ -759,204 +628,330 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
         self._publish_results()
 
     def _publish_results(self):
-        self._publish_cpu_results()
-        self._publish_entangler_results()
+        prefix = "cpu_vs_entangler_match"
 
-    def _publish_cpu_results(self):
-        prefix = "match_vs_cpu/cpu_branch"
-        if len(self.cpu_samples) == 0:
-            print("cpu_branch: no samples")
+        self.set_dataset(
+            f"{prefix}/input_names",
+            np.array(self.input_name_list),
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{prefix}/cpu_output_names",
+            np.array(self.cpu_output_name_list),
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{prefix}/entangler_input_indices",
+            np.array(self.entangler_input_index_list, dtype=np.int64),
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{prefix}/entangler_output_indices",
+            np.array(self.entangler_output_index_list, dtype=np.int64),
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{prefix}/expected_pattern",
+            np.int64(self.expected_pattern_i),
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{prefix}/pattern_enable_shift",
+            np.int64(self.pattern_enable_shift_i),
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{prefix}/pulse_offset_mu",
+            np.int64(self.pulse_offset_mu),
+            broadcast=True,
+            archive=True,
+        )
+
+        self._publish_cpu_results(prefix)
+        self._publish_entangler_results(prefix)
+        self._publish_comparison_results(prefix)
+
+    def _publish_cpu_results(self, prefix):
+        if self.variant_code not in (0, 1):
+            print("CPU branch: not run")
             return
 
-        click = self._array("click_mu", self.cpu_samples)
-        dark = self._array("dark_click_mu", self.cpu_samples)
-        decision_wall = self._array("decision_wall_mu", self.cpu_samples)
-        response_target = self._array("response_target_mu", self.cpu_samples)
-        schedule_done_wall = self._array("schedule_done_wall_mu", self.cpu_samples)
-        monitor = self._array("monitor_mu", self.cpu_samples)
-        condition = self._array("condition_met", self.cpu_samples)
-        missed = self._array("missed_response", self.cpu_samples)
+        cpu_pulse = np.array(self.cpu_pulse_mu, dtype=np.int64)
+        cpu_click = np.array(self.cpu_click_mu, dtype=np.int64)
+        cpu_counts = np.array(self.cpu_counts, dtype=np.int64)
+        cpu_matched = np.array(self.cpu_matched, dtype=np.int64)
+        cpu_decision_wall = np.array(self.cpu_decision_wall_mu, dtype=np.int64)
+        cpu_latency = np.where(
+            cpu_click >= 0, cpu_click - cpu_pulse[:, None], NO_TIMESTAMP
+        )
+        cpu_click_to_decision = np.where(
+            (cpu_decision_wall >= 0) & np.all(cpu_click >= 0, axis=1),
+            cpu_decision_wall - np.max(cpu_click, axis=1),
+            NO_TIMESTAMP,
+        )
 
-        click_to_decision = self._delta_or_minus_one(decision_wall, click)
-        click_to_response_target = self._delta_or_minus_one(response_target, click)
-        decision_to_response_margin = self._delta_or_minus_one(
-            response_target, decision_wall
+        branch = f"{prefix}/cpu_branch"
+        self.set_dataset(f"{branch}/pulse_mu", cpu_pulse, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/click_mu", cpu_click, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/counts", cpu_counts, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/matched", cpu_matched, broadcast=True, archive=True)
+        self.set_dataset(
+            f"{branch}/click_minus_pulse_mu",
+            cpu_latency,
+            broadcast=True,
+            archive=True,
         )
-        click_to_schedule_done_wall = self._delta_or_minus_one(schedule_done_wall, click)
-        monitor_after_click = self._delta_or_minus_one(monitor, click)
+        self.set_dataset(
+            f"{branch}/click_to_decision_wall_mu",
+            cpu_click_to_decision,
+            broadcast=True,
+            archive=True,
+        )
 
-        self.set_dataset(f"{prefix}/click_mu", click, broadcast=True, archive=True)
-        self.set_dataset(f"{prefix}/dark_click_mu", dark, broadcast=True, archive=True)
-        self.set_dataset(
-            f"{prefix}/click_to_decision_wall_mu",
-            click_to_decision,
-            broadcast=True,
-            archive=True,
-        )
-        self.set_dataset(
-            f"{prefix}/click_to_response_target_mu",
-            click_to_response_target,
-            broadcast=True,
-            archive=True,
-        )
-        self.set_dataset(
-            f"{prefix}/decision_to_response_margin_mu",
-            decision_to_response_margin,
-            broadcast=True,
-            archive=True,
-        )
-        self.set_dataset(
-            f"{prefix}/click_to_schedule_done_wall_mu",
-            click_to_schedule_done_wall,
-            broadcast=True,
-            archive=True,
-        )
-        self.set_dataset(
-            f"{prefix}/monitor_after_click_mu",
-            monitor_after_click,
-            broadcast=True,
-            archive=True,
-        )
-        self.set_dataset(f"{prefix}/condition_met", condition, broadcast=True, archive=True)
-        self.set_dataset(f"{prefix}/missed_response", missed, broadcast=True, archive=True)
-
-        print("")
-        print("=== CPU branch summary (mu) ===")
-        print("samples:", len(self.cpu_samples))
-        print("condition met:", int(np.sum(condition)))
-        print("missed response deadline:", int(np.sum(missed)))
-        print(
-            "click -> decision wall mean/min:",
-            self._mean_or_minus_one(click_to_decision),
-            "/",
-            self._min_or_minus_one(click_to_decision),
-        )
-        print(
-            "decision -> response target margin mean/min:",
-            self._mean_or_minus_one(decision_to_response_margin),
-            "/",
-            self._min_or_minus_one(decision_to_response_margin),
-        )
-        if np.any(monitor_after_click >= 0):
+        print("=== CPU branch summary ===")
+        print("matches:", int(np.sum(cpu_matched)), "/", self.repetitions_i)
+        for i, name in enumerate(self.input_name_list):
+            latency = cpu_latency[:, i]
             print(
-                "physical monitor click -> response mean/min:",
-                self._mean_or_minus_one(monitor_after_click),
-                "/",
-                self._min_or_minus_one(monitor_after_click),
+                "{} <- {} latency_mu mean/min/max:".format(
+                    name, self.cpu_output_name_list[i]
+                ),
+                self._mean_or_minus_one(latency),
+                self._min_or_minus_one(latency),
+                self._max_or_minus_one(latency),
             )
+        print(
+            "latest click -> CPU decision wall mean/min/max:",
+            self._mean_or_minus_one(cpu_click_to_decision),
+            self._min_or_minus_one(cpu_click_to_decision),
+            self._max_or_minus_one(cpu_click_to_decision),
+        )
+        print("")
 
-    def _publish_entangler_results(self):
-        prefix = "match_vs_cpu/entangler_core"
-        if len(self.entangler_samples) == 0:
-            print("entangler_core: no samples")
+    def _publish_entangler_results(self, prefix):
+        if self.variant_code not in (0, 2):
+            print("Entangler core: not run")
             return
 
-        ttl_click = self._array("ttl_click_mu", self.entangler_samples)
-        dark = self._array("dark_click_mu", self.entangler_samples)
-        input_ts = self._array("entangler_input_ts_mu", self.entangler_samples)
-        run_end = self._array("run_end_mu", self.entangler_samples)
-        reason = self._array("reason", self.entangler_samples)
-        status = self._array("status", self.entangler_samples)
-        ncycles = self._array("ncycles", self.entangler_samples)
-        wall_after_run = self._array("wall_after_run_mu", self.entangler_samples)
-        response_target = self._array("response_target_mu", self.entangler_samples)
-        monitor = self._array("monitor_mu", self.entangler_samples)
+        ttl_click = np.array(self.entangler_ttl_click_mu, dtype=np.int64)
+        ttl_counts = np.array(self.entangler_ttl_counts, dtype=np.int64)
+        input_ts = np.array(self.entangler_input_ts_mu, dtype=np.int64)
+        run_end = np.array(self.entangler_run_end_mu, dtype=np.int64)
+        reason = np.array(self.entangler_reason, dtype=np.int64)
+        status = np.array(self.entangler_status, dtype=np.int64)
+        ncycles = np.array(self.entangler_ncycles, dtype=np.int64)
+        success = np.array(self.entangler_success, dtype=np.int64)
+        wall_after_run = np.array(self.entangler_wall_after_run_mu, dtype=np.int64)
 
-        click_to_cycle_end = np.where(
-            (ttl_click >= 0) & (input_ts > 0),
-            self.entangler_cycle_length_mu - input_ts,
-            -1,
+        entangler_latency = np.where(
+            input_ts >= 0, input_ts - self.pulse_offset_mu, NO_TIMESTAMP
         )
-        click_to_run_end_timestamp = self._delta_or_minus_one(run_end, ttl_click)
-        click_to_run_return_wall = self._delta_or_minus_one(wall_after_run, ttl_click)
-        click_to_response_target = self._delta_or_minus_one(response_target, ttl_click)
-        monitor_after_click = self._delta_or_minus_one(monitor, ttl_click)
-        no_done = np.where(run_end < 0, 1, 0).astype(np.int64)
-        success = np.where(
-            (run_end >= 0) & (reason != ENTANGLER_TIMEOUT), 1, 0
+        ttl_span = np.where(
+            np.all(ttl_click >= 0, axis=1),
+            np.max(ttl_click, axis=1) - np.min(ttl_click, axis=1),
+            NO_TIMESTAMP,
+        )
+        run_return_after_ttl_click = np.where(
+            (wall_after_run >= 0) & np.all(ttl_click >= 0, axis=1),
+            wall_after_run - np.max(ttl_click, axis=1),
+            NO_TIMESTAMP,
+        )
+        run_done_after_ttl_click = np.where(
+            (run_end >= 0) & np.all(ttl_click >= 0, axis=1),
+            run_end - np.max(ttl_click, axis=1),
+            NO_TIMESTAMP,
+        )
+        timeout = np.where(
+            (run_end >= 0) & (reason == ENTANGLER_TIMEOUT), 1, 0
         ).astype(np.int64)
+        no_done = np.where(run_end < 0, 1, 0).astype(np.int64)
 
-        self.set_dataset(f"{prefix}/ttl_click_mu", ttl_click, broadcast=True, archive=True)
-        self.set_dataset(f"{prefix}/dark_click_mu", dark, broadcast=True, archive=True)
+        branch = f"{prefix}/entangler_core"
         self.set_dataset(
-            f"{prefix}/entangler_input_ts_mu", input_ts, broadcast=True, archive=True
+            f"{branch}/ttl_click_mu", ttl_click, broadcast=True, archive=True
         )
-        self.set_dataset(f"{prefix}/run_end_mu", run_end, broadcast=True, archive=True)
-        self.set_dataset(f"{prefix}/reason", reason, broadcast=True, archive=True)
-        self.set_dataset(f"{prefix}/status", status, broadcast=True, archive=True)
-        self.set_dataset(f"{prefix}/ncycles", ncycles, broadcast=True, archive=True)
-        self.set_dataset(f"{prefix}/success", success, broadcast=True, archive=True)
-        self.set_dataset(f"{prefix}/no_done_event", no_done, broadcast=True, archive=True)
         self.set_dataset(
-            f"{prefix}/click_to_cycle_end_mu",
-            click_to_cycle_end,
+            f"{branch}/ttl_counts", ttl_counts, broadcast=True, archive=True
+        )
+        self.set_dataset(
+            f"{branch}/input_timestamp_mu", input_ts, broadcast=True, archive=True
+        )
+        self.set_dataset(f"{branch}/run_end_mu", run_end, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/reason", reason, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/status", status, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/ncycles", ncycles, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/success", success, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/timeout", timeout, broadcast=True, archive=True)
+        self.set_dataset(f"{branch}/no_done_event", no_done, broadcast=True, archive=True)
+        self.set_dataset(
+            f"{branch}/input_timestamp_minus_pulse_offset_mu",
+            entangler_latency,
             broadcast=True,
             archive=True,
         )
         self.set_dataset(
-            f"{prefix}/click_to_run_end_timestamp_mu",
-            click_to_run_end_timestamp,
+            f"{branch}/ttl_click_span_mu", ttl_span, broadcast=True, archive=True
+        )
+        self.set_dataset(
+            f"{branch}/ttl_click_to_run_return_wall_mu",
+            run_return_after_ttl_click,
             broadcast=True,
             archive=True,
         )
         self.set_dataset(
-            f"{prefix}/click_to_run_return_wall_mu",
-            click_to_run_return_wall,
+            f"{branch}/ttl_click_to_run_done_timestamp_mu",
+            run_done_after_ttl_click,
+            broadcast=True,
+            archive=True,
+        )
+
+        print("=== Entangler core summary ===")
+        print("successes:", int(np.sum(success)), "/", self.repetitions_i)
+        print("timeouts:", int(np.sum(timeout)))
+        print("no done events:", int(np.sum(no_done)))
+        print("reason values:", sorted(set(reason.tolist())))
+        for i, name in enumerate(self.input_name_list):
+            print(
+                "input {} ({}) timestamp_mu mean/min/max:".format(
+                    self.entangler_input_index_list[i], name
+                ),
+                self._mean_or_minus_one(input_ts[:, i]),
+                self._min_or_minus_one(input_ts[:, i]),
+                self._max_or_minus_one(input_ts[:, i]),
+            )
+            print(
+                "input {} ({}) timestamp - pulse_offset mean/min/max:".format(
+                    self.entangler_input_index_list[i], name
+                ),
+                self._mean_or_minus_one(entangler_latency[:, i]),
+                self._min_or_minus_one(entangler_latency[:, i]),
+                self._max_or_minus_one(entangler_latency[:, i]),
+            )
+        print(
+            "TTL monitor click span mean/min/max:",
+            self._mean_or_minus_one(ttl_span),
+            self._min_or_minus_one(ttl_span),
+            self._max_or_minus_one(ttl_span),
+        )
+        print(
+            "latest TTL click -> entangler done timestamp mean/min/max:",
+            self._mean_or_minus_one(run_done_after_ttl_click),
+            self._min_or_minus_one(run_done_after_ttl_click),
+            self._max_or_minus_one(run_done_after_ttl_click),
+        )
+        print(
+            "latest TTL click -> run return wall mean/min/max:",
+            self._mean_or_minus_one(run_return_after_ttl_click),
+            self._min_or_minus_one(run_return_after_ttl_click),
+            self._max_or_minus_one(run_return_after_ttl_click),
+        )
+
+    def _publish_comparison_results(self, prefix):
+        if self.variant_code != 0:
+            return
+
+        cpu_click = np.array(self.cpu_click_mu, dtype=np.int64)
+        cpu_decision_wall = np.array(self.cpu_decision_wall_mu, dtype=np.int64)
+        ttl_click = np.array(self.entangler_ttl_click_mu, dtype=np.int64)
+        run_end = np.array(self.entangler_run_end_mu, dtype=np.int64)
+        wall_after_run = np.array(self.entangler_wall_after_run_mu, dtype=np.int64)
+
+        cpu_click_to_decision = np.where(
+            (cpu_decision_wall >= 0) & np.all(cpu_click >= 0, axis=1),
+            cpu_decision_wall - np.max(cpu_click, axis=1),
+            NO_TIMESTAMP,
+        )
+        entangler_click_to_done = np.where(
+            (run_end >= 0) & np.all(ttl_click >= 0, axis=1),
+            run_end - np.max(ttl_click, axis=1),
+            NO_TIMESTAMP,
+        )
+        entangler_click_to_return = np.where(
+            (wall_after_run >= 0) & np.all(ttl_click >= 0, axis=1),
+            wall_after_run - np.max(ttl_click, axis=1),
+            NO_TIMESTAMP,
+        )
+        done_minus_cpu = np.where(
+            (cpu_click_to_decision >= 0) & (entangler_click_to_done >= 0),
+            entangler_click_to_done - cpu_click_to_decision,
+            NO_TIMESTAMP,
+        )
+        return_minus_cpu = np.where(
+            (cpu_click_to_decision >= 0) & (entangler_click_to_return >= 0),
+            entangler_click_to_return - cpu_click_to_decision,
+            NO_TIMESTAMP,
+        )
+
+        branch = f"{prefix}/comparison"
+        self.set_dataset(
+            f"{branch}/cpu_click_to_decision_wall_mu",
+            cpu_click_to_decision,
             broadcast=True,
             archive=True,
         )
         self.set_dataset(
-            f"{prefix}/click_to_response_marker_target_mu",
-            click_to_response_target,
+            f"{branch}/entangler_click_to_done_timestamp_mu",
+            entangler_click_to_done,
             broadcast=True,
             archive=True,
         )
         self.set_dataset(
-            f"{prefix}/monitor_after_click_mu",
-            monitor_after_click,
+            f"{branch}/entangler_click_to_run_return_wall_mu",
+            entangler_click_to_return,
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{branch}/entangler_done_minus_cpu_decision_mu",
+            done_minus_cpu,
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{branch}/entangler_return_minus_cpu_decision_mu",
+            return_minus_cpu,
             broadcast=True,
             archive=True,
         )
 
         print("")
-        print("=== Entangler core summary (mu) ===")
-        print("samples:", len(self.entangler_samples))
-        print("successes:", int(np.sum(success)))
-        print("timeouts:", int(np.sum((run_end >= 0) & (reason == ENTANGLER_TIMEOUT))))
-        print("no done events:", int(np.sum(no_done)))
+        print("=== Speed comparison (mu) ===")
         print(
-            "click -> cycle end mean/min:",
-            self._mean_or_minus_one(click_to_cycle_end),
-            "/",
-            self._min_or_minus_one(click_to_cycle_end),
+            "CPU latest click -> decision wall mean/min/max:",
+            self._mean_or_minus_one(cpu_click_to_decision),
+            self._min_or_minus_one(cpu_click_to_decision),
+            self._max_or_minus_one(cpu_click_to_decision),
         )
         print(
-            "click -> run return wall mean/min:",
-            self._mean_or_minus_one(click_to_run_return_wall),
-            "/",
-            self._min_or_minus_one(click_to_run_return_wall),
+            "Entangler latest click -> done timestamp mean/min/max:",
+            self._mean_or_minus_one(entangler_click_to_done),
+            self._min_or_minus_one(entangler_click_to_done),
+            self._max_or_minus_one(entangler_click_to_done),
         )
         print(
-            "click -> pre-scheduled marker target mean/min:",
-            self._mean_or_minus_one(click_to_response_target),
-            "/",
-            self._min_or_minus_one(click_to_response_target),
+            "Entangler latest click -> run return wall mean/min/max:",
+            self._mean_or_minus_one(entangler_click_to_return),
+            self._min_or_minus_one(entangler_click_to_return),
+            self._max_or_minus_one(entangler_click_to_return),
         )
-        if np.any(monitor_after_click >= 0):
-            print(
-                "physical monitor click -> marker mean/min:",
-                self._mean_or_minus_one(monitor_after_click),
-                "/",
-                self._min_or_minus_one(monitor_after_click),
-            )
-
-    @staticmethod
-    def _array(key, samples):
-        return np.array([sample[key] for sample in samples], dtype=np.int64)
-
-    @staticmethod
-    def _delta_or_minus_one(target, origin):
-        return np.where((target >= 0) & (origin >= 0), target - origin, -1)
+        print(
+            "Entangler done - CPU decision mean/min/max:",
+            self._mean_or_minus_one(done_minus_cpu),
+            self._min_or_minus_one(done_minus_cpu),
+            self._max_or_minus_one(done_minus_cpu),
+        )
+        print(
+            "Entangler return - CPU decision mean/min/max:",
+            self._mean_or_minus_one(return_minus_cpu),
+            self._min_or_minus_one(return_minus_cpu),
+            self._max_or_minus_one(return_minus_cpu),
+        )
 
     @staticmethod
     def _valid_values(values):
@@ -973,3 +968,9 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
         if valid.size == 0:
             return -1
         return int(np.min(valid))
+
+    def _max_or_minus_one(self, values):
+        valid = self._valid_values(values)
+        if valid.size == 0:
+            return -1
+        return int(np.max(valid))

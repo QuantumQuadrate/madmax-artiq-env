@@ -112,9 +112,9 @@ This shows that the entangler hardware event can be faster when the cycle is
 tight, but returning the result to Python through `run_mu()` is still slower than
 the simple CPU timestamp branch.
 
-### Fast Hardware-Done Condition
+### Previous Fast Hardware-Done Condition
 
-The fastest successful condition tested so far uses:
+The fastest broad-pulse condition tested before the narrower window tests used:
 
 ```text
 pulse_offset_us = 1.0
@@ -145,9 +145,53 @@ Entangler hardware done - CPU decision: -817 mu, about 0.82 us faster
 Entangler run return - CPU decision:   +373 mu, about 0.37 us slower
 ```
 
-This is the strongest case measured for the current local loopback setup. The
-hardware success event is faster, but Python still sees the result later than the
-CPU branch.
+This was the strongest case measured before narrowing the pulse and input gate.
+The hardware success event is faster, but Python still sees the result later than
+the CPU branch.
+
+### Narrow 200 ns And 40 ns Window Test
+
+A follow-up test narrowed the output pulse and input gate, then pulled the cycle
+endpoint closer to the observed loopback click. The purpose was to compare a
+hardware done event roughly `200 ns` after the latest click with one `40 ns`
+after the latest click.
+
+Both runs used:
+
+```text
+pulse_offset_us = 1.0
+pulse_width_us = 0.04
+cpu_gate_width_us = 10.0
+entangler_gate_pre_us = 0.10
+entangler_gate_post_us = 0.06
+repetitions = 20
+```
+
+Measured result:
+
+```text
+target done window  cycle_us  successes  CPU decision  HW done  run return
+~200 ns             1.276     20 / 20    1077 mu       207 mu   1387 mu
+40 ns               1.104     20 / 20    1070 mu       40 mu    1210 mu
+```
+
+Comparison against the CPU decision:
+
+```text
+target done window  done_minus_cpu_mu  return_minus_cpu_mu
+~200 ns             -869               +310
+40 ns               -1030              +140
+```
+
+With this setup, the `40 ns` cycle window is faster. It reduces the hardware
+success timestamp by about `167 ns` relative to the `~200 ns` case. It also
+reduces the Python-visible `run_mu()` return time, but not enough to make the
+Python branch faster than the direct CPU timestamp decision.
+
+The local gateware simulation was also checked with literal `200 ns` and `40 ns`
+cycle lengths. Both simulated cycles succeeded, and the `40 ns` cycle reached
+`done_stb` sooner. The stock entangler-core simulation tests passed:
+`3 passed`, with only the existing unknown `slow` pytest mark warning.
 
 ## Cycle-Length Sweep
 
@@ -177,6 +221,15 @@ cycle_us  successes  done_after_click_mu  done_minus_cpu_mu  return_minus_cpu_mu
 The entangler hardware success event is faster than the CPU decision when the
 cycle is below roughly `2 us` for this two-click loopback test. Once the cycle is
 several microseconds long, the CPU timestamp branch wins the one-shot comparison.
+
+Making the cycle smaller helps the hardware done timestamp only while the output
+pulse, input gate, and observed click latency still fit before the cycle endpoint.
+The current hardware has an `8 ns` coarse cycle granularity, the input gate must
+close before the cycle ends, and the measured loopback click lands about
+`72-74 ns` after the entangler pulse offset in the narrow-window tests. Below
+that practical limit, the core will start missing valid clicks or timing settings
+will become invalid. Smaller cycles do not remove the `run_mu()` handoff cost, so
+they mainly help if the next time-critical action can stay in gateware.
 
 ## Relevance To The Current Experiment Code
 
@@ -237,4 +290,3 @@ pattern match -> start a gateware response sequencer
 In that design, Python can observe the result later while the time-critical
 response happens in hardware. Without that gateware response path, replacing the
 current code with the entangler core is unlikely to improve the experiment.
-

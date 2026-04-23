@@ -188,9 +188,9 @@ the CPU through `run_mu()` still has RTIO/driver overhead. If the next action is
 kept in gateware, the entangler done timestamp is the relevant number. If Python
 must branch after `run_mu()` returns, use the run-return wall number.
 
-#### Fast hardware-done result
+#### Previous fast hardware-done result
 
-The fastest successful condition tested so far is:
+The fastest broad-pulse condition tested before narrowing the timing window was:
 
 ```bash
 SETTINGS_FILE_FOR_DYNACONF="$PWD/entangler/settings.toml" PYTHONNOUSERSITE=1 \
@@ -256,6 +256,55 @@ The `fast_hardware_done` condition is faster because the cycle endpoint is only
 about 247 ns after the click; the 1.0 us cycle with an earlier click leaves about
 423 ns between click and cycle endpoint.
 
+#### Narrow 200 ns and 40 ns window result
+
+A follow-up test narrowed the output pulse and input gate, then compared cycle
+endpoints near `200 ns` and `40 ns` after the latest observed click:
+
+```bash
+SETTINGS_FILE_FOR_DYNACONF="$PWD/entangler/settings.toml" PYTHONNOUSERSITE=1 \
+timeout 240s entangler/.venv/bin/python -I -m artiq.frontend.artiq_run \
+  --device-db entangler/device_db.py \
+  --dataset-db entangler/dataset_db.pyon \
+  -c EntanglerMatchVsCpuBranchTiming \
+  entangler/repository/entangler_match_vs_cpu_branch.py \
+  repetitions=20 \
+  'variant="both"' \
+  'test_condition="custom"' \
+  pulse_offset_us=1.0 \
+  pulse_width_us=0.04 \
+  cpu_gate_width_us=10.0 \
+  entangler_gate_pre_us=0.10 \
+  entangler_gate_post_us=0.06
+```
+
+The `~200 ns` run used `entangler_cycle_length_us=1.276`. The `40 ns` run used
+`entangler_cycle_length_us=1.104`.
+
+```text
+target done window  successes  CPU decision  HW done  run return
+~200 ns             20 / 20    1077 mu       207 mu   1387 mu
+40 ns               20 / 20    1070 mu       40 mu    1210 mu
+```
+
+Compared with the CPU decision:
+
+```text
+target done window  done_minus_cpu_mu  return_minus_cpu_mu
+~200 ns             -869               +310
+40 ns               -1030              +140
+```
+
+The `40 ns` cycle window is faster. It moves the hardware success event about
+`167 ns` earlier than the `~200 ns` case, and it also reduces the `run_mu()`
+return time. The Python-visible return is still slower than the direct CPU
+timestamp branch because the driver/RTIO handoff remains in the path.
+
+The matching gateware simulation also succeeded for literal `200 ns` and `40 ns`
+cycle lengths; the `40 ns` simulated cycle reached `done_stb` first. The stock
+entangler-core tests passed with `3 passed`, aside from the existing unknown
+`slow` pytest mark warning.
+
 #### Cycle-length sweep
 
 Keeping the pulse near 1.0 us and using `pulse_width_us=0.2`,
@@ -276,6 +325,14 @@ cycle_us  successes  done_after_click_mu  done_minus_cpu_mu  return_minus_cpu_mu
 For this two-click loopback benchmark, the entangler hardware success event is
 faster than the CPU decision when the cycle is below roughly 2 us. Once the
 cycle is several microseconds long, the CPU wins this simple one-shot comparison.
+
+Making the cycle smaller helps only while the real click and gate window still
+fit before the cycle endpoint. The endpoint is quantized to the `8 ns` coarse
+clock, the input gate must close before the cycle ends, and the narrow-window
+loopback clicks landed about `72-74 ns` after the entangler pulse offset. Smaller
+cycles can therefore improve the hardware timestamp down to a practical limit,
+but they do not remove the `run_mu()` return overhead. For a true experiment
+speedup, the next time-critical action still needs to happen in gateware.
 
 #### Can the entangler trigger work without waiting for the CPU?
 

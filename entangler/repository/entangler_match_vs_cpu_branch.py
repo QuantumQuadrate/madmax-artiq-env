@@ -41,6 +41,13 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
             NumberValue(default=25, min=1, max=10000, step=1, ndecimals=0),
             group="Benchmark",
         )
+        self.setattr_argument(
+            "test_condition",
+            EnumerationValue(
+                ["baseline", "tight_entangler_cycle", "custom"], default="baseline"
+            ),
+            group="Benchmark",
+        )
 
         self.setattr_argument(
             "cpu_output_names",
@@ -165,19 +172,38 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
             for input_index in self.entangler_input_index_list:
                 self.expected_pattern_i |= 1 << input_index
 
-        self.pulse_offset_mu = self.core.seconds_to_mu(self.pulse_offset_us * 1e-6)
-        self.pulse_width_mu = max(
-            1, self.core.seconds_to_mu(self.pulse_width_us * 1e-6)
+        self.effective_pulse_offset_us = float(self.pulse_offset_us)
+        self.effective_pulse_width_us = float(self.pulse_width_us)
+        self.effective_cpu_gate_width_us = float(self.cpu_gate_width_us)
+        self.effective_entangler_cycle_length_us = float(self.entangler_cycle_length_us)
+        self.effective_entangler_gate_pre_us = float(self.entangler_gate_pre_us)
+        self.effective_entangler_gate_post_us = float(self.entangler_gate_post_us)
+
+        if self.test_condition == "tight_entangler_cycle":
+            self.effective_pulse_offset_us = 1.0
+            self.effective_pulse_width_us = 0.2
+            self.effective_cpu_gate_width_us = 10.0
+            self.effective_entangler_cycle_length_us = 1.6
+            self.effective_entangler_gate_pre_us = 0.2
+            self.effective_entangler_gate_post_us = 0.1
+
+        self.pulse_offset_mu = self.core.seconds_to_mu(
+            self.effective_pulse_offset_us * 1e-6
         )
-        self.cpu_gate_width_mu = self.core.seconds_to_mu(self.cpu_gate_width_us * 1e-6)
+        self.pulse_width_mu = max(
+            1, self.core.seconds_to_mu(self.effective_pulse_width_us * 1e-6)
+        )
+        self.cpu_gate_width_mu = self.core.seconds_to_mu(
+            self.effective_cpu_gate_width_us * 1e-6
+        )
         self.entangler_cycle_length_mu = self.core.seconds_to_mu(
-            self.entangler_cycle_length_us * 1e-6
+            self.effective_entangler_cycle_length_us * 1e-6
         )
         self.entangler_gate_pre_mu = self.core.seconds_to_mu(
-            self.entangler_gate_pre_us * 1e-6
+            self.effective_entangler_gate_pre_us * 1e-6
         )
         self.entangler_gate_post_mu = self.core.seconds_to_mu(
-            self.entangler_gate_post_us * 1e-6
+            self.effective_entangler_gate_post_us * 1e-6
         )
         self.entangler_run_margin_mu = self.core.seconds_to_mu(
             self.entangler_run_margin_us * 1e-6
@@ -617,7 +643,21 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
         print("entangler inputs:", self.entangler_input_index_list)
         print("expected pattern:", bin(self.expected_pattern_i))
         print("pattern enable shift:", self.pattern_enable_shift_i)
-        print("pulse offset/width us:", self.pulse_offset_us, "/", self.pulse_width_us)
+        print("test condition:", self.test_condition)
+        print(
+            "pulse offset/width us:",
+            self.effective_pulse_offset_us,
+            "/",
+            self.effective_pulse_width_us,
+        )
+        print(
+            "entangler cycle/gate pre/post us:",
+            self.effective_entangler_cycle_length_us,
+            "/",
+            self.effective_entangler_gate_pre_us,
+            "/",
+            self.effective_entangler_gate_post_us,
+        )
         print("")
 
         if self.variant_code in (0, 1):
@@ -661,8 +701,29 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
             archive=True,
         )
         self.set_dataset(
+            f"{prefix}/test_condition",
+            np.array([self.test_condition]),
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
             f"{prefix}/pattern_enable_shift",
             np.int64(self.pattern_enable_shift_i),
+            broadcast=True,
+            archive=True,
+        )
+        self.set_dataset(
+            f"{prefix}/effective_timing_us",
+            np.array(
+                [
+                    self.effective_pulse_offset_us,
+                    self.effective_pulse_width_us,
+                    self.effective_cpu_gate_width_us,
+                    self.effective_entangler_cycle_length_us,
+                    self.effective_entangler_gate_pre_us,
+                    self.effective_entangler_gate_post_us,
+                ]
+            ),
             broadcast=True,
             archive=True,
         )
@@ -942,9 +1003,18 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
         )
         print(
             "Entangler done - CPU decision mean/min/max:",
-            self._mean_or_minus_one(done_minus_cpu),
-            self._min_or_minus_one(done_minus_cpu),
-            self._max_or_minus_one(done_minus_cpu),
+            self._mean_masked_or_minus_one(
+                done_minus_cpu,
+                (cpu_click_to_decision >= 0) & (entangler_click_to_done >= 0),
+            ),
+            self._min_masked_or_minus_one(
+                done_minus_cpu,
+                (cpu_click_to_decision >= 0) & (entangler_click_to_done >= 0),
+            ),
+            self._max_masked_or_minus_one(
+                done_minus_cpu,
+                (cpu_click_to_decision >= 0) & (entangler_click_to_done >= 0),
+            ),
         )
         print(
             "Entangler return - CPU decision mean/min/max:",
@@ -971,6 +1041,28 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
 
     def _max_or_minus_one(self, values):
         valid = self._valid_values(values)
+        if valid.size == 0:
+            return -1
+        return int(np.max(valid))
+
+    @staticmethod
+    def _masked_values(values, mask):
+        return values[mask]
+
+    def _mean_masked_or_minus_one(self, values, mask):
+        valid = self._masked_values(values, mask)
+        if valid.size == 0:
+            return -1
+        return int(np.mean(valid))
+
+    def _min_masked_or_minus_one(self, values, mask):
+        valid = self._masked_values(values, mask)
+        if valid.size == 0:
+            return -1
+        return int(np.min(valid))
+
+    def _max_masked_or_minus_one(self, values, mask):
+        valid = self._masked_values(values, mask)
         if valid.size == 0:
             return -1
         return int(np.max(valid))

@@ -44,7 +44,13 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
         self.setattr_argument(
             "test_condition",
             EnumerationValue(
-                ["baseline", "tight_entangler_cycle", "custom"], default="baseline"
+                [
+                    "baseline",
+                    "tight_entangler_cycle",
+                    "fast_hardware_done",
+                    "custom",
+                ],
+                default="baseline",
             ),
             group="Benchmark",
         )
@@ -184,6 +190,13 @@ class EntanglerMatchVsCpuBranchTiming(EnvExperiment):
             self.effective_pulse_width_us = 0.2
             self.effective_cpu_gate_width_us = 10.0
             self.effective_entangler_cycle_length_us = 1.6
+            self.effective_entangler_gate_pre_us = 0.2
+            self.effective_entangler_gate_post_us = 0.1
+        elif self.test_condition == "fast_hardware_done":
+            self.effective_pulse_offset_us = 1.0
+            self.effective_pulse_width_us = 0.2
+            self.effective_cpu_gate_width_us = 10.0
+            self.effective_entangler_cycle_length_us = 1.32
             self.effective_entangler_gate_pre_us = 0.2
             self.effective_entangler_gate_post_us = 0.1
 

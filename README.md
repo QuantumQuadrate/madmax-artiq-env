@@ -72,11 +72,12 @@ timeout 240s entangler/.venv/bin/python -I -m artiq.frontend.artiq_run \
   repetitions=25
 ```
 
-The benchmark has three timing modes:
+The benchmark has these timing modes:
 
 ```text
 test_condition = baseline                 # use the normal timing arguments
 test_condition = tight_entangler_cycle    # force a short cycle that ends soon after the input gate
+test_condition = fast_hardware_done       # shortest tested successful cycle for this loopback setup
 test_condition = custom                   # use the timing arguments as supplied
 ```
 
@@ -186,6 +187,123 @@ the CPU decision when the entangler cycle is tight, but returning that result to
 the CPU through `run_mu()` still has RTIO/driver overhead. If the next action is
 kept in gateware, the entangler done timestamp is the relevant number. If Python
 must branch after `run_mu()` returns, use the run-return wall number.
+
+#### Fast hardware-done result
+
+The fastest successful condition tested so far is:
+
+```bash
+SETTINGS_FILE_FOR_DYNACONF="$PWD/entangler/settings.toml" PYTHONNOUSERSITE=1 \
+timeout 240s entangler/.venv/bin/python -I -m artiq.frontend.artiq_run \
+  --device-db entangler/device_db.py \
+  --dataset-db entangler/dataset_db.pyon \
+  -c EntanglerMatchVsCpuBranchTiming \
+  entangler/repository/entangler_match_vs_cpu_branch.py \
+  repetitions=25 \
+  'test_condition="fast_hardware_done"'
+```
+
+This condition uses:
+
+```text
+pulse_offset_us = 1.0
+pulse_width_us = 0.2
+cpu_gate_width_us = 10.0
+entangler_cycle_length_us = 1.32
+entangler_gate_pre_us = 0.2
+entangler_gate_post_us = 0.1
+```
+
+A 25-shot run produced:
+
+```text
+CPU branch:
+  matches: 25 / 25
+  latest click -> CPU decision wall: mean 1065 mu
+
+Entangler core:
+  successes: 25 / 25
+  timeouts: 0
+  latest TTL click -> entangler done timestamp: mean 247 mu
+  latest TTL click -> run return wall: mean 1439 mu
+```
+
+With `ref_period = 1 ns`, the comparison was:
+
+```text
+Entangler done timestamp - CPU decision: mean -817 mu, about 0.82 us faster
+Entangler run return wall - CPU decision: mean +373 mu, about 0.37 us slower
+```
+
+An even earlier-click custom condition was also tested:
+
+```text
+pulse_offset_us = 0.5
+pulse_width_us = 0.1
+entangler_cycle_length_us = 1.0
+entangler_gate_pre_us = 0.1
+entangler_gate_post_us = 0.1
+```
+
+It succeeded 20/20 and produced:
+
+```text
+Entangler done timestamp - CPU decision: mean -638 mu, about 0.64 us faster
+Entangler run return wall - CPU decision: mean +538 mu, about 0.54 us slower
+```
+
+The `fast_hardware_done` condition is faster because the cycle endpoint is only
+about 247 ns after the click; the 1.0 us cycle with an earlier click leaves about
+423 ns between click and cycle endpoint.
+
+#### Cycle-length sweep
+
+Keeping the pulse near 1.0 us and using `pulse_width_us=0.2`,
+`entangler_gate_pre_us=0.2`, and `entangler_gate_post_us=0.1`, the entangler
+hardware done time tracks the cycle endpoint:
+
+```text
+cycle_us  successes  done_after_click_mu  done_minus_cpu_mu  return_minus_cpu_mu
+1.32      20 / 20    247                  -807               +374
+1.40      20 / 20    328                  -735               +434
+1.60      20 / 20    528                  -528               +672
+2.00      20 / 20    928                  -136               +1036
+3.00      20 / 20    1928                 +866               +2035
+5.00      20 / 20    3928                 +2872              +4045
+7.00      20 / 20    5928                 +4880              +6056
+```
+
+For this two-click loopback benchmark, the entangler hardware success event is
+faster than the CPU decision when the cycle is below roughly 2 us. Once the
+cycle is several microseconds long, the CPU wins this simple one-shot comparison.
+
+#### Can the entangler trigger work without waiting for the CPU?
+
+Not as a Python interrupt in the current ARTIQ kernel model. The current driver
+uses `run_mu()`, which blocks until the entangler emits an RTIO input event with
+success or timeout. That is interrupt-like at the RTIO/event level, but Python
+kernel code still resumes only when `run_mu()` returns. The timestamp can be
+ignored if only the success reason is needed, but the CPU is still in the path
+for any Python-side branch.
+
+To do work without waiting for the CPU, the work must live in gateware. Practical
+options are:
+
+```text
+1. Add a success/done output from the entangler core and wire it to a TTL or
+   downstream FPGA logic.
+2. Add a small gateware FSM that starts a programmed action on pattern match or
+   cycle success.
+3. Add a register-programmable "success response" sequencer so the core emits
+   a TTL pulse after a match/cycle success without returning to Python.
+4. Use the current core for deterministic repeated attempts, and let Python only
+   observe the final success/timeout event.
+```
+
+The existing core already performs the pattern matching and stops on success.
+What it does not currently provide is a general "on match, immediately execute
+an arbitrary action" engine. Adding that would be a gateware feature, not a
+Python experiment change.
 
 The benchmark publishes datasets under:
 

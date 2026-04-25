@@ -1,0 +1,21 @@
+# Configuration settings for the Entangler gateware.
+# Allows configuring the number of inputs & outputs, counter widths, etc.
+
+# I believe these can be overwritten by setting the same-named environment variable,
+# if you cannot modify this file for some reason.
+
+# Must match the flashed atom-photon parity bitstream.
+NUM_OUTPUT_CHANNELS = 8
+NUM_ENTANGLER_INPUT_SIGNALS = 2
+NUM_GENERIC_INPUT_SIGNALS = 0
+NUM_PATTERNS_ALLOWED = 4
+
+# These ones probably shouldn't need changed, but leaving it here just in case
+# Width of sequence duration counters and the coarse part of input timestamps
+# (units of clock cycles).
+COARSE_COUNTER_WIDTH = 11
+# COUNTER_WIDTH + fine_timestamp_width = 11 + 3 = 14
+# Limited in various places to be <= 16 bits, probably don't do more than that.
+FULL_COUNTER_WIDTH = 14
+MAX_CYCLES_PER_RUN = 16383  # 14 bits
+MAX_TRIGGER_COUNTS = 16383  # 14 bits

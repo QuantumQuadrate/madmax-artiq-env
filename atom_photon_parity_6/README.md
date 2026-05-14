@@ -111,6 +111,58 @@ artiq_run -d device_db.py repository/atom_photon_parity_6_benchmark.py
 The loopback files use output 0 as a synthetic photon pulse. They are meant to
 prove timestamp capture and branch selection before using the real SPCM signals.
 
+## Test Kasli With External Fake SPCM Pulses
+
+For a test Kasli with two DIO cards, use one card for the parity helper and keep
+the second DIO card as normal ARTIQ TTL outputs that simulate SPCM pulses.
+
+Suggested wiring:
+
+```text
+DIO card 1 ttl12 output -> DIO card 0 helper input 0  # fake SPCM0
+DIO card 1 ttl13 output -> DIO card 0 helper input 1  # fake SPCM1
+```
+
+Scope channels:
+
+```text
+CH1: fake SPCM0 pulse, ttl12
+CH2: fake SPCM1 pulse, ttl13
+CH3: helper branch-0 output
+CH4: helper branch-1 output
+```
+
+Run one case at a time:
+
+```bash
+uv run python -I -m artiq.frontend.artiq_run \
+  --device-db device_db.py --dataset-db dataset_db.pyon \
+  -c AtomPhotonParity6ExternalSPCMSim \
+  repository/atom_photon_parity_6_external_spcm_sim.py \
+  'case="spcm0"'
+```
+
+Then repeat with:
+
+```text
+case="spcm1"
+case="both"
+case="none"
+```
+
+Expected outcomes:
+
+| Case | Expected outcome | Expected branch output |
+| --- | --- | --- |
+| `spcm0` | `1`, `SPCM0_ONLY` | branch-0 output pulse only |
+| `spcm1` | `2`, `SPCM1_ONLY` | branch-1 output pulse only |
+| `both` | timeout/failure path | no branch pulse |
+| `none` | timeout/failure path | no branch pulse |
+ 
+The fake SPCM pulse defaults to 3 us after helper start, inside a 1-8 us gate.
+Move `fake_spcm_delay_us` outside that gate to confirm that out-of-window pulses
+are ignored.
+
 ## Outcome Codes
 
 | Code | Meaning |

@@ -1,8 +1,14 @@
 # Atom-Photon Parity 6 ARTIQ Runtime
 
-This runtime folder contains hardware-facing experiments for the
-`atom_photon_parity` custom Entangler mode used to test the timing-critical
-section of `atom_photon_parity_6_experiment`.
+This runtime folder contains:
+
+- hardware-facing diagnostics for the `atom_photon_parity` custom Entangler
+  helper, and
+- a runnable wrapper for the full
+  `qn_artiq_routines.subroutines.experiment_functions.atom_photon_parity_6_experiment`.
+
+The wrapper keeps the parity-6 physics sequence in `repos/qn_artiq_routines` and
+only adds an ARTIQ entry point inside this environment.
 
 ## Expected Devices
 
@@ -22,6 +28,58 @@ The `entangler` device must use:
 ```text
 module = entangler.atom_photon_parity_driver
 class = AtomPhotonParityEntangler
+```
+
+`device_db.py` imports the calibrated node-1 device database from
+`repos/qn_artiq_routines/device_db/device_db_node1_with_edgecounters_calibrated.py`
+and then adds the custom parity helper as `entangler`.
+
+After generating/flashing a matching bitstream, update
+`PARITY_HELPER_RTIO_CHANNEL` in `device_db.py` to the real RTIO channel assigned
+to the helper.
+
+## Setup
+
+From this directory:
+
+```bash
+uv sync
+```
+
+The environment is seeded with `dataset_db.pyon` defaults from
+`qn_artiq_routines/ExperimentVariables.py`, with `which_node = "alice"`. You can
+edit `dataset_db.pyon` directly, run the QN `ExperimentVariables` experiment
+from the dashboard, or override common parity-6 values from the wrapper GUI.
+
+To start an ARTIQ master for this environment:
+
+```bash
+./run_artiq.sh
+```
+
+To run the full parity-6 experiment once from the command line:
+
+```bash
+./run_parity_6.sh
+```
+
+Common overrides can be passed through `artiq_run`:
+
+```bash
+./run_parity_6.sh n_measurements=10 target_780_HWP=12.5 target_780_QWP=0.0
+```
+
+The runnable wrapper is:
+
+```text
+repository/atom_photon_parity_6_experiment.py
+```
+
+It imports and calls:
+
+```text
+repos/qn_artiq_routines/subroutines/experiment_functions.py:
+atom_photon_parity_6_experiment(self)
 ```
 
 ## Run Order
@@ -82,4 +140,3 @@ polarity are confirmed on a scope.
 
 When the helper is disabled with `entangler.configure(False)`, output pads should
 fall back to normal ARTIQ TTL passthrough.
-

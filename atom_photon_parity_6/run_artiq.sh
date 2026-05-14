@@ -2,5 +2,4 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-artiq_master -r repository -d device_db.py
-
+artiq_master -r repository -d device_db.py --dataset-db dataset_db.pyon

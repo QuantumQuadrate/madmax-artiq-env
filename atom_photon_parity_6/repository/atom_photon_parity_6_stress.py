@@ -16,7 +16,7 @@ class AtomPhotonParity6Stress(EnvExperiment):
     @kernel
     def run(self):
         self.core.reset()
-        self.entangler.configure(True)
+        self.entangler.configure(1)
 
         successes = 0
         timeouts = 0
@@ -35,6 +35,8 @@ class AtomPhotonParity6Stress(EnvExperiment):
             self.entangler.set_branch_window_mu(0, 1, self.core.seconds_to_mu(2e-6), self.core.seconds_to_mu(3e-6))
 
             _, status = self.entangler.start()
+
+            self.core.break_realtime()
             outcome = self.entangler.get_outcome()
 
             if status & 0b100:

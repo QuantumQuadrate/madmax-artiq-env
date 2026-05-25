@@ -21,7 +21,7 @@ class AtomPhotonParity6SPCM0Loopback(EnvExperiment):
     def run(self):
         self.core.reset()
         self.entangler.clear()
-        self.entangler.configure(True)
+        self.entangler.configure(1)
 
         photon_start_mu = self.core.seconds_to_mu(self.photon_start_us * 1e-6)
         photon_stop_mu = photon_start_mu + self.core.seconds_to_mu(self.photon_width_us * 1e-6)
@@ -44,13 +44,4 @@ class AtomPhotonParity6SPCM0Loopback(EnvExperiment):
         print(
             "spcm0_loopback status",
             status,
-            "outcome",
-            self.entangler.get_outcome(),
-            "click_ts",
-            self.entangler.get_click_timestamp_mu(),
-            "spcm0_ts",
-            self.entangler.get_spcm_timestamp_mu(0),
-            "spcm1_ts",
-            self.entangler.get_spcm_timestamp_mu(1),
         )
-

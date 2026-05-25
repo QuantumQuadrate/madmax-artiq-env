@@ -47,7 +47,7 @@ class AtomPhotonParity6ExternalSPCMSim(EnvExperiment):
         self.ttl13.off()
 
         self.entangler.clear()
-        self.entangler.configure(True)
+        self.entangler.configure(1)
 
         gate_start_mu = self.core.seconds_to_mu(self.gate_start_us * 1e-6)
         gate_stop_mu = self.core.seconds_to_mu(self.gate_stop_us * 1e-6)
@@ -84,6 +84,7 @@ class AtomPhotonParity6ExternalSPCMSim(EnvExperiment):
 
         at_mu(t_start)
         _, status = self.entangler.start()
+        self.core.break_realtime()
 
         print(
             "external_spcm_sim",

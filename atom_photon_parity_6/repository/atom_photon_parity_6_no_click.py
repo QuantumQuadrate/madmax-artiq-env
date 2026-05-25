@@ -12,7 +12,7 @@ class AtomPhotonParity6NoClick(EnvExperiment):
         self.setattr_device("core")
         self.setattr_device("entangler")
         self.setattr_argument("num_attempts", NumberValue(default=4, min=1, step=1, ndecimals=0))
-        self.setattr_argument("attempt_period_us", NumberValue(default=20.0, min=2.0))
+        self.setattr_argument("attempt_period_us", NumberValue(default=10.0, min=2.0))
         self.setattr_argument("gate_start_us", NumberValue(default=2.0, min=0.1))
         self.setattr_argument("gate_stop_us", NumberValue(default=8.0, min=0.2))
 
@@ -20,7 +20,7 @@ class AtomPhotonParity6NoClick(EnvExperiment):
     def run(self):
         self.core.reset()
         self.entangler.clear()
-        self.entangler.configure(True)
+        self.entangler.configure(1)
 
         attempts = int(self.num_attempts)
         attempt_period_mu = self.core.seconds_to_mu(self.attempt_period_us * 1e-6)
@@ -37,6 +37,8 @@ class AtomPhotonParity6NoClick(EnvExperiment):
 
         _, status = self.entangler.start()
 
+        self.core.break_realtime()
+
         print(
             "no_click status",
             status,
@@ -49,4 +51,3 @@ class AtomPhotonParity6NoClick(EnvExperiment):
             "spcm1_ts",
             self.entangler.get_spcm_timestamp_mu(1),
         )
-

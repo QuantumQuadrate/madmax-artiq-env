@@ -12,16 +12,19 @@ only adds an ARTIQ entry point inside this environment.
 
 ## Expected Devices
 
-The generated config assumes one DIO EEM:
+The parity helper owns one DIO EEM, but that DIO must still appear as a normal
+eight-channel ARTIQ card in `device_db.py`.
 
-| Device | Suggested signal |
-| --- | --- |
-| `entangler_input0` | `SPCM0` or loopback into the SPCM0 input |
-| `entangler_input1` | `SPCM1` or loopback into the SPCM1 input |
-| `entangler_output0` | fake photon pulse or FORT blanking debug |
-| `entangler_output1` | branch debug pulse |
-| `entangler_output2` | microwave switch debug pulse |
-| `entangler_output3` | MW+RF/debug branch pulse |
+| Device | Physical line | Role |
+| --- | --- | --- |
+| `ttl0` | DIO0[0] | SPCM0 helper input and normal TTL input |
+| `ttl1` | DIO0[1] | SPCM1 helper input and normal TTL input |
+| `ttl2` | DIO0[2] | generic normal TTL input |
+| `ttl3` | DIO0[3] | generic normal TTL input |
+| `ttl4` | DIO0[4] | helper output 0 / normal TTL output |
+| `ttl5` | DIO0[5] | helper output 1 / normal TTL output |
+| `ttl6` | DIO0[6] | helper output 2 / normal TTL output |
+| `ttl7` | DIO0[7] | helper output 3 / normal TTL output |
 
 The `entangler` device must use:
 
@@ -30,13 +33,14 @@ module = entangler.atom_photon_parity_driver
 class = AtomPhotonParityEntangler
 ```
 
-`device_db.py` imports the calibrated node-1 device database from
-`repos/qn_artiq_routines/device_db/device_db_node1_with_edgecounters_calibrated.py`
-and then adds the custom parity helper as `entangler`.
+The matching gateware settings must keep `NUM_ENTANGLER_INPUT_SIGNALS = 2` and
+`NUM_GENERIC_INPUT_SIGNALS = 2`. If the generic input count is lower, `ttl2`
+and `ttl3` will disappear from the generated DDB and the full-DIO passthrough
+contract is broken.
 
-After generating/flashing a matching bitstream, update
-`PARITY_HELPER_RTIO_CHANNEL` in `device_db.py` to the real RTIO channel assigned
-to the helper.
+Regenerate/copy `device_db.py` only with the bitstream built from the same
+`entangler_settings.toml`; the helper channel and all downstream channels move
+when the exported TTL count changes.
 
 ## Setup
 
@@ -111,6 +115,26 @@ artiq_run -d device_db.py repository/atom_photon_parity_6_benchmark.py
 The loopback files use output 0 as a synthetic photon pulse. They are meant to
 prove timestamp capture and branch selection before using the real SPCM signals.
 
+For a fixed two-cable setup on one DIO card, connect:
+
+```text
+entangler_output0 / DIO channel 4 -> entangler_input0 / DIO channel 0
+entangler_output1 / DIO channel 5 -> entangler_input1 / DIO channel 1
+```
+
+Then run:
+
+```bash
+artiq_run -d device_db.py repository/atom_photon_parity_6_dual_loopback.py 'case="spcm0"'
+artiq_run -d device_db.py repository/atom_photon_parity_6_dual_loopback.py 'case="spcm1"'
+artiq_run -d device_db.py repository/atom_photon_parity_6_dual_loopback.py 'case="both"'
+artiq_run -d device_db.py repository/atom_photon_parity_6_dual_loopback.py 'case="none"'
+```
+
+Expected outcomes are `1` for `spcm0`, `2` for `spcm1`, and timeout/failure
+paths for `both` and `none`. Scope DIO channel 6 for the SPCM0 branch marker and
+DIO channel 7 for the SPCM1 branch marker.
+
 ## Test Kasli With External Fake SPCM Pulses
 
 For a test Kasli with two DIO cards, use one card for the parity helper and keep
@@ -162,6 +186,87 @@ Expected outcomes:
 The fake SPCM pulse defaults to 3 us after helper start, inside a 1-8 us gate.
 Move `fake_spcm_delay_us` outside that gate to confirm that out-of-window pulses
 are ignored.
+
+## Fast Loop Scope Test
+
+Use this test to measure the gateware-only excitation loop and branch-marker
+timing without the Python-side `5 us` padding delay from the full parity
+experiment.
+
+Suggested four-cable setup:
+
+```text
+helper output 0 / ttl4 / DIO0[4] -> helper input 0 / ttl0 / DIO0[0]
+helper output 1 / ttl5 / DIO0[5] -> helper input 1 / ttl1 / DIO0[1]
+helper output 2 / ttl6 / DIO0[6] -> monitor input ttl2
+helper output 3 / ttl7 / DIO0[7] -> monitor input ttl3
+```
+
+Scope the same helper outputs directly:
+
+```text
+CH1: helper output 0, fake SPCM0 click
+CH2: helper output 1, fake SPCM1 click
+CH3: helper output 2, SPCM0-only branch marker
+CH4: helper output 3, SPCM1-only branch marker
+```
+
+Run:
+
+```bash
+uv run python -I -m artiq.frontend.artiq_run \
+  --device-db device_db.py --dataset-db dataset_db.pyon \
+  -c AtomPhotonParity6FastLoopScope \
+  repository/atom_photon_parity_6_fast_loop_scope.py \
+  'case="spcm0"' 'repetitions=100'
+```
+
+Useful cases:
+
+```text
+case="spcm0"  # fake SPCM0, expect output 2 branch marker
+case="spcm1"  # fake SPCM1, expect output 3 branch marker
+case="both"   # fake both SPCMs, expect no branch marker and timeout/failure
+case="none"   # no fake clicks, expect no branch marker and timeout/failure
+```
+
+Default timing is intentionally fast:
+
+```text
+attempt_period_ns = 128
+fake_click_delay_ns = 16
+gate_start_ns = 8
+gate_width_ns = 16
+branch_offset_ns = 96
+branch_width_ns = 32
+```
+
+The printed `summary_average_loop_mu` is the hardware loop time. On the scope,
+the branch marker should rise at:
+
+```text
+floor(click_ts / 8 ns) * 8 ns + branch_offset_ns
+```
+
+The current gateware uses the click's 8 ns coarse timestamp for branch outputs.
+
+## Current Validation Notes
+
+The matching gateware build description and runtime DDB were validated on
+2026-05-25 with the main workspace `atom_photon_parity_6.yaml` config. The
+expected overlay result is:
+
+| Device group | RTIO channels |
+| --- | --- |
+| `ttl0` through `ttl7` | `0x000000` through `0x000007` |
+| `ttl0_counter` through `ttl3_counter` | `0x000008` through `0x00000b` |
+| `entangler0` / `entangler` | `0x00000c` |
+
+`uv run pytest` in the main workspace passed the integration tests that check
+the JSON description path, DIO overlay override wiring, and dry-run gateware
+plan. Hardware loopback results should be recorded with the exact bitstream,
+`device_db.py`, cable setup, case, and `summary_*` output printed by
+`atom_photon_parity_6_fast_loop_scope.py`.
 
 ## Outcome Codes
 

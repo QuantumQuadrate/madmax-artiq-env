@@ -12,7 +12,7 @@ class AtomPhotonParity6Benchmark(EnvExperiment):
     @kernel
     def run(self):
         self.core.reset()
-        self.entangler.configure(True)
+        self.entangler.configure(1)
         self.entangler.set_run_length_mu(self.core.seconds_to_mu(30e-6))
         self.entangler.set_num_attempts(1)
         self.entangler.set_attempt_period_mu(self.core.seconds_to_mu(10e-6))

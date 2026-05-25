@@ -19,7 +19,7 @@ class AtomPhotonParity6TimingScan(EnvExperiment):
     @kernel
     def run(self):
         self.core.reset()
-        self.entangler.configure(True)
+        self.entangler.configure(1)
 
         photon_start_mu = self.core.seconds_to_mu(2e-6)
         photon_stop_mu = self.core.seconds_to_mu(3e-6)
@@ -41,6 +41,8 @@ class AtomPhotonParity6TimingScan(EnvExperiment):
             self.entangler.set_branch_window_mu(0, 1, branch_start_mu, branch_stop_mu)
 
             _, status = self.entangler.start()
+
+            self.core.break_realtime()
             print(
                 "offset_us",
                 offset_us,

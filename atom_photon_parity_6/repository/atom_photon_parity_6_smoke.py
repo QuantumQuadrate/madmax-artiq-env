@@ -21,7 +21,7 @@ class AtomPhotonParity6Smoke(EnvExperiment):
     def run(self):
         self.core.reset()
         self.entangler.clear()
-        self.entangler.configure(True)
+        self.entangler.configure(1)
 
         run_length_mu = self.core.seconds_to_mu(self.run_length_us * 1e-6)
         attempt_period_mu = self.core.seconds_to_mu(self.attempt_period_us * 1e-6)
@@ -36,6 +36,8 @@ class AtomPhotonParity6Smoke(EnvExperiment):
         self.entangler.set_branch_done_delay_mu(self.core.seconds_to_mu(5e-6))
 
         _, status = self.entangler.start()
+
+        self.core.break_realtime()
 
         print(
             "status",

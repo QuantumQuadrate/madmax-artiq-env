@@ -1,3 +1,7 @@
 __pycache__/
 *.vcd
 *.h5
+logs/
+last_rid.pyon
+atom_photon_parity_6/logs/
+atom_photon_parity_6/last_rid.pyon

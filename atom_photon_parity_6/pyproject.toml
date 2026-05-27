@@ -11,6 +11,8 @@ dependencies = [
   "entangler @ file:///home/jrydberg/Documents/Projects/AI_env/MADMAX_AI_Gateware/repos/madmax-entangler-core",
   "numpy==1.26.*",
   "scipy>=1.10",
+  "h5py>=3.10",
+  "pyvisa>=1.14",
+  "PyQt5>=5.15",
   "dynaconf",
 ]
-

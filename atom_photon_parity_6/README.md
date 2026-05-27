@@ -2,13 +2,26 @@
 
 This runtime folder contains:
 
-- hardware-facing diagnostics for the `atom_photon_parity` custom Entangler
+- hardware-facing diagnostics for the `atom_photon_parity` custom entangler
   helper, and
-- a runnable wrapper for the full
+- two dashboard wrappers for the full
   `qn_artiq_routines.subroutines.experiment_functions.atom_photon_parity_6_experiment`.
 
-The wrapper keeps the parity-6 physics sequence in `repos/qn_artiq_routines` and
-only adds an ARTIQ entry point inside this environment.
+The parity-6 physics sequence is bundled locally under
+`support/qn_artiq_routines` so this run environment can be used directly by
+`artiq_master`/`artiq_dashboard` without relying on a checkout-relative symlink.
+
+## Dashboard Experiments
+
+Use these two files from `artiq_dashboard`:
+
+| File | Class | Device DB | Purpose |
+| --- | --- | --- | --- |
+| `repository/atom_photon_parity_6_no_entangler.py` | `AtomPhotonParity6NoEntangler` | `device_db_no_entangler.py` | Full QN parity-6 sequence on a normal node-1 bitstream. |
+| `repository/atom_photon_parity_6_with_entangler.py` | `AtomPhotonParity6WithEntanglerCore` | `device_db.py` | Full QN parity-6 sequence in the entangler-capable runtime; the helper is cleared and left in passthrough before the software sequence runs. |
+
+The old entry point, `repository/atom_photon_parity_6_experiment.py`, remains as
+a compatibility alias for `AtomPhotonParity6NoEntangler`.
 
 ## Expected Devices
 
@@ -50,15 +63,25 @@ From this directory:
 uv sync
 ```
 
+The UV environment includes the ARTIQ stack, the local entangler driver,
+`numpy`, `scipy`, `h5py`, `pyvisa`, and the other Python dependencies needed by
+the bundled QN files.
+
 The environment is seeded with `dataset_db.pyon` defaults from
 `qn_artiq_routines/ExperimentVariables.py`, with `which_node = "alice"`. You can
 edit `dataset_db.pyon` directly, run the QN `ExperimentVariables` experiment
 from the dashboard, or override common parity-6 values from the wrapper GUI.
 
-To start an ARTIQ master for this environment:
+To start an ARTIQ master for the entangler-overlay bitstream:
 
 ```bash
 ./run_artiq.sh
+```
+
+For a normal no-entangler bitstream:
+
+```bash
+./run_artiq.sh --no-entangler
 ```
 
 To run the full parity-6 experiment once from the command line:
@@ -67,13 +90,19 @@ To run the full parity-6 experiment once from the command line:
 ./run_parity_6.sh
 ```
 
+To use the entangler-aware runtime entry point:
+
+```bash
+./run_parity_6.sh --with-entangler
+```
+
 Common overrides can be passed through `artiq_run`:
 
 ```bash
 ./run_parity_6.sh n_measurements=10 target_780_HWP=12.5 target_780_QWP=0.0
 ```
 
-The runnable wrapper is:
+The compatibility wrapper is:
 
 ```text
 repository/atom_photon_parity_6_experiment.py
@@ -84,6 +113,32 @@ It imports and calls:
 ```text
 repos/qn_artiq_routines/subroutines/experiment_functions.py:
 atom_photon_parity_6_experiment(self)
+```
+
+## Device Map Warning
+
+If the board boots with:
+
+```text
+error reading device map (Configuration key `device_map` not found)
+```
+
+the gateware and runtime are still up. That config key is only used to print
+device names in RTIO error messages. Generate the matching blob from the same
+device DB as the flashed image:
+
+```bash
+./make_device_map.py --device-db device_db.py --output device_map.bin
+```
+
+Then either copy it to `config/device_map.bin` on the SD card, or upload it to a
+running core and reboot:
+
+```bash
+uv run python -I -m artiq.frontend.artiq_coremgmt \
+  --device-db device_db.py config write -f device_map device_map.bin
+uv run python -I -m artiq.frontend.artiq_coremgmt \
+  --device-db device_db.py reboot
 ```
 
 ## Run Order
